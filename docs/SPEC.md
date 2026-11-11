@@ -1,9 +1,10 @@
 # anisong-curator — Prototype Spec
 
-Status: draft v0.2 · Scope: single-user, single-page prototype
+Status: draft v0.3 · Scope: single-user, single-page prototype
 Decision log: v0.2 drops the Apple Developer Program requirement. Apple Music
 access goes through the keyless iTunes Search/Lookup APIs (read) and Apple
 Shortcuts (playlist read/write). The MusicKit path is kept as an upgrade (§10).
+v0.3 moves AnimeThemes from its deprecated REST API to GraphQL (§9.1).
 
 ## 1. User story
 
@@ -38,7 +39,7 @@ Shortcuts (playlist read/write). The MusicKit path is kept as an upgrade (§10).
 | Service | Purpose | Auth | Approx. limits |
 |---|---|---|---|
 | AniList GraphQL (`graphql.anilist.co`) | Your anime lists, statuses, dates | None for public lists; OAuth implicit grant for private ones | 90 req/min nominal. It has run in a "degraded" 30 req/min mode, so code for 30 |
-| AnimeThemes API (`api.animethemes.moe`) | OP/ED song title, artists, sequence, episodes | None | ~90 req/min |
+| AnimeThemes **GraphQL** (`graphql.animethemes.moe`) | OP/ED song title (romaji + native), artists, sequence, episodes; `findAnimeByExternalSite(site: ANILIST, id: [..])` batches 50–100 shows per call | None | 90 req/min, complexity ≤ 200, depth ≤ 15. CORS verified for `localhost:5173` |
 | Jikan v4 (`api.jikan.moe`) — fallback | MAL theme strings, via AniList `idMal` | None | 3 req/s, 60 req/min |
 | **iTunes Search API** (`itunes.apple.com/search`) | Catalog search: `trackId`, names, album, duration, `previewUrl`, `trackViewUrl` | None | **~20 req/min**, which is the binding constraint |
 | **iTunes Lookup API** (`itunes.apple.com/lookup`) | Fetch or refresh tracks by ID, many IDs per call; check availability per country | None | Shares the ~20 req/min budget |
@@ -220,6 +221,15 @@ Edge cases:
 ## 9. Technical and integration challenges
 
 ### 9.1 Theme coverage
+- **Use the GraphQL API, not REST.** The REST/JSON:API (`api.animethemes.moe`)
+  is officially deprecated ("will be removed") and returned 503 for every
+  request on 2026-11-11, which is what broke the first spike run. GraphQL was
+  up with CORS for `localhost:5173`. One call covered 17/18 recent shows.
+  The docs name the query `filterAnimeByExternalSite`; the live schema calls
+  it `findAnimeByExternalSite`. Trust the schema.
+- `Song.resources` can carry `APPLE_MUSIC` / `SPOTIFY` links. When present,
+  that's an exact catalog ID and skips matching. It was empty for all 22 songs
+  sampled, so treat it as a bonus.
 - AnimeThemes is strong for TV anime since ~2000, and weak for older shows,
   ONAs, shorts, and **currently airing shows** (data lags by days to weeks).
   Retry these on the next run (negative-cache TTL).
@@ -285,9 +295,8 @@ them. Optionally, import the **whole** playlist once (§9.6) to seed the snapsho
 1. "Read Tail" (n = 30) gives `{title, artist, album, durationMs}[]`.
 2. Build an index of normalized `title|artist` keys from the themes of every
    Bucket A/B show. This needs one-time theme resolution for the whole list.
-   That's about one AnimeThemes request per show, or fewer if batching works:
-   ~500 shows takes ~6 min at 90/min, ~17 min at 30/min. Run it in the
-   background and cache it forever. **No iTunes queries are needed.** This is
+   With batched GraphQL lookups that's ~10 requests for 500 shows, a few
+   seconds. Cache it forever. **No iTunes queries are needed.** This is
    name-to-name matching, not catalog matching.
 3. Map each tail track to `{show, confidence}`, or to "not an anisong". The
    album name ("… Opening Theme") and the anime title are extra signals.
@@ -341,7 +350,8 @@ Network probes weren't possible while this spec was written. In priority order:
    whether `trackId` equals the Apple Music catalog song ID (open
    `music.apple.com/us/song/{trackId}`).
 5. **Cross-storefront IDs**: a `country=jp` hit looked up with `country=us`.
-6. **AnimeThemes**: lookup by AniList external ID, batching, CORS.
+6. ~~**AnimeThemes**: lookup by AniList external ID, batching, CORS.~~
+   Resolved: GraphQL `findAnimeByExternalSite`, batched, CORS OK (§9.1).
 7. AniList's current rate limit (the `X-RateLimit-Limit` header).
 
 ## 12. Milestones
@@ -349,8 +359,8 @@ Network probes weren't possible while this spec was written. In priority order:
 | # | Deliverable | Proves |
 |---|---|---|
 | M0 | Spikes 1–4 (one HTML page + two hand-built Shortcuts) | The keyless loop is feasible |
-| M1 | AniList load + ordering UI + lower-bound picker | §8 rules |
-| M2 | Theme resolution + cache | Coverage on *your* list (log hit rate) |
+| M1 ✅ | AniList load + ordering UI + lower-bound picker | §8 rules |
+| M2 ✅ | Theme resolution + cache | Coverage on *your* list (log hit rate) |
 | M3 | iTunes matcher + review UI with previews + URL paste | Match precision within the 20/min budget |
 | M4 | Shortcuts bridge: staging playlist, verify via Read Tail | End-to-end Mode 1 |
 | M5 | Decisions + CommitLog + cursor (§7), dedupe | Periodic use without re-picking |
