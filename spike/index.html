@@ -43,7 +43,7 @@
 
 <!-- 2. AnimeThemes -->
 <section id="themes">
-  <h2>2 · AnimeThemes coverage (spike 6)</h2>
+  <h2>2 · AnimeThemes coverage (spike 6, GraphQL API)</h2>
   <label>Test the most recently completed <input type="number" id="at-n" value="20" min="1" max="50"> shows</label>
   <button id="at-run">Resolve themes</button>
   <div id="at-out" class="muted">Load AniList first.</div>
@@ -229,26 +229,35 @@ function table(head, rows) {
 }
 
 /* ---------- 2. AnimeThemes ---------- */
-const AT = 'https://api.animethemes.moe/anime';
-function atUrl(ids) {
-  const p = new URLSearchParams({
-    'filter[has]': 'resources', 'filter[site]': 'AniList', 'filter[external_id]': ids.join(','),
-    'include': 'animethemes.song.artists,resources', 'fields[anime]': 'name,slug,year', 'page[size]': '100'
-  });
-  return `${AT}?${p}`;
-}
+// The REST API (api.animethemes.moe) is deprecated and returned 503s on
+// 2026-11-11. GraphQL has a natively batched lookup by AniList id.
+const AT_GQL = 'https://graphql.animethemes.moe/';
+const AT_QUERY = `query ($id: [Int!]) {
+  findAnimeByExternalSite(site: ANILIST, id: $id) {
+    resources { nodes { site externalId } }
+    animethemes { type sequence slug
+      song { id title { romaji native } performances { artist { ... on Artist { name { main } } } } resources { nodes { site link } } }
+      animethemeentries { episodes } }
+  }
+}`;
 async function atFetch(ids) {
-  const res = await fetch(atUrl(ids), { headers:{ Accept:'application/json' } });
+  const res = await fetch(AT_GQL, { method:'POST', headers:{ 'Content-Type':'application/json', Accept:'application/json' }, body: JSON.stringify({ query: AT_QUERY, variables:{ id: ids } }) });
+  rep('animethemes.rateLimitHeader', res.headers.get('X-RateLimit-Limit') ?? 'not exposed');
   if (!res.ok) throw new Error(`AnimeThemes HTTP ${res.status}`);
   const body = await res.json();
+  if (body.errors) throw new Error(body.errors.map(e => e.message).join('; '));
   const out = {};
-  for (const a of body.anime || []) {
-    const r = (a.resources || []).find(r => /anilist/i.test(r.site) && ids.includes(Number(r.external_id)));
-    if (!r) continue;
-    out[r.external_id] = (a.animethemes || []).map(t => ({
-      kind: t.type, seq: t.sequence ?? 1, slug: t.slug,
-      title: t.song?.title ?? null, artists: (t.song?.artists || []).map(x => x.name), songId: t.song?.id ?? null
-    }));
+  for (const a of body.data.findAnimeByExternalSite || []) {
+    for (const r of a.resources.nodes) {
+      if (r.site !== 'ANILIST' || !ids.includes(r.externalId)) continue;
+      out[r.externalId] = a.animethemes.map(t => ({
+        kind: t.type, seq: t.sequence ?? 1, slug: t.slug,
+        title: t.song?.title?.romaji ?? null, native: t.song?.title?.native ?? null,
+        artists: [...new Set((t.song?.performances || []).map(p => p.artist?.name?.main).filter(Boolean))],
+        appleMusic: (t.song?.resources?.nodes || []).find(x => x.site === 'APPLE_MUSIC')?.link ?? null,
+        songId: t.song?.id ?? null
+      }));
+    }
   }
   return out;
 }
@@ -259,38 +268,26 @@ $('at-run').onclick = async () => {
   const ids = shows.map(e => e.media.id);
   $('at-out').textContent = 'Resolving…';
   try {
-    // Try batched lookup first.
-    let found = {}, batch = 'untested';
     const t0 = performance.now();
-    try {
-      found = await atFetch(ids);
-      log(`AnimeThemes batch: ${Object.keys(found).length}/${ids.length} matched in one request.`);
-    } catch (e) { log('AnimeThemes batch failed: ' + e.message); batch = 'error: ' + e.message; }
-    // Probe whether misses are real misses or batching being ignored.
-    const missing = ids.filter(id => !(id in found));
-    let recoveredSingly = 0;
-    for (const id of missing) {
-      await sleep(700); // stay < 90/min
-      try { const one = await atFetch([id]); if (one[id]) { found[id] = one[id]; recoveredSingly++; } } catch (e) { log(`AnimeThemes single ${id}: ${e.message}`); }
-    }
-    if (batch === 'untested') batch = recoveredSingly === 0 ? 'works' : (recoveredSingly === missing.length ? 'ignored (only single IDs work)' : `partial (${recoveredSingly} recovered singly)`);
+    const found = await atFetch(ids);
     Object.assign(S.themes, found);
     const withThemes = ids.filter(id => found[id]?.length);
-    const total = withThemes.reduce((s, id) => s + found[id].length, 0);
-    const missingSongTitle = withThemes.reduce((s, id) => s + found[id].filter(t => !t.title).length, 0);
-    rep('animethemes.batching', batch);
+    const all = withThemes.flatMap(id => found[id]);
+    rep('animethemes.api', 'graphql findAnimeByExternalSite (1 request)');
     rep('animethemes.coverage', `${withThemes.length}/${ids.length} shows have themes`);
-    rep('animethemes.themesFound', total);
-    rep('animethemes.themesWithoutSongTitle', missingSongTitle);
+    rep('animethemes.themesFound', all.length);
+    rep('animethemes.themesWithoutSongTitle', all.filter(t => !t.title).length);
+    rep('animethemes.themesWithAppleMusicLink', all.filter(t => t.appleMusic).length);
     rep('animethemes.ms', Math.round(performance.now() - t0));
     rep('animethemes.uncoveredFormats', shows.filter(e => !found[e.media.id]?.length).map(e => `${e.media.format} ${e.media.seasonYear ?? ''}`.trim()));
+    log(`AnimeThemes: ${withThemes.length}/${ids.length} shows, ${all.length} themes in one request.`);
     const rows = [];
     for (const e of shows) {
       const th = found[e.media.id];
       if (!th?.length) { rows.push([fmtDate(e.completedAt), title(e.media), {html:'<span class="bad">no themes</span>'}, '', '']); continue; }
       for (const t of th) rows.push([fmtDate(e.completedAt), title(e.media), `${t.kind}${t.seq}`, t.title ?? '?', t.artists.join(', ')]);
     }
-    $('at-out').innerHTML = `<span class="ok">${withThemes.length}/${ids.length} shows covered</span> · ${total} themes · batching: ${esc(batch)}`
+    $('at-out').innerHTML = `<span class="ok">${withThemes.length}/${ids.length} shows covered</span> · ${all.length} themes · 1 request`
       + table(['Completed','Show','Theme','Song','Artists'], rows);
     // Click a row to fill iTunes search
     $('at-out').querySelectorAll('tr').forEach((tr, i) => {
@@ -300,6 +297,7 @@ $('at-run').onclick = async () => {
   } catch (err) {
     $('at-out').innerHTML = `<span class="bad">${esc(err.message)}</span>`;
     rep('animethemes.error', err.message);
+    log('AnimeThemes error: ' + err.message);
   }
 };
 
