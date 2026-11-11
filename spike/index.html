@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>anisong-curator · M0 spike</title>
+<style>
+  :root { --bg:#fff; --fg:#1b1b1f; --muted:#666; --line:#ddd; --ok:#1a7f37; --bad:#c62828; --warn:#a15c00; --accent:#3557d4; --card:#f7f7f9; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16161a; --fg:#e8e8ec; --muted:#9a9aa5; --line:#33333b; --ok:#4cc26b; --bad:#ff6b6b; --warn:#f0ad4e; --accent:#8aa2ff; --card:#1f1f25; } }
+  * { box-sizing:border-box; }
+  body { margin:0; padding:16px; font:14px/1.45 system-ui,-apple-system,sans-serif; background:var(--bg); color:var(--fg); max-width:1100px; margin-inline:auto; }
+  h1 { font-size:20px; margin:0 0 4px; } h2 { font-size:16px; margin:0 0 8px; }
+  p.lead { color:var(--muted); margin:0 0 16px; }
+  section { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:14px; }
+  label { display:inline-flex; gap:6px; align-items:center; margin:0 12px 8px 0; }
+  input[type=text], input[type=number], textarea { font:inherit; padding:5px 7px; border:1px solid var(--line); border-radius:5px; background:var(--bg); color:var(--fg); }
+  textarea { width:100%; min-height:70px; font-family:ui-monospace,monospace; font-size:12px; }
+  button { font:inherit; padding:5px 11px; border-radius:5px; border:1px solid var(--accent); background:var(--accent); color:#fff; cursor:pointer; margin:0 6px 6px 0; }
+  button.secondary { background:transparent; color:var(--accent); }
+  table { width:100%; border-collapse:collapse; font-size:13px; margin-top:8px; }
+  th, td { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); vertical-align:top; }
+  .scroll { overflow-x:auto; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .warn { color:var(--warn); } .muted { color:var(--muted); }
+  pre { background:var(--bg); border:1px solid var(--line); border-radius:5px; padding:8px; overflow:auto; font-size:12px; max-height:320px; }
+  audio { height:28px; width:180px; }
+  .checks label { display:flex; margin:4px 0; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<h1>anisong-curator · M0 spike</h1>
+<p class="lead">Probes each integration in <code>docs/SPEC.md §11</code>. Everything runs in your browser. Results persist in localStorage. Use “Copy report” at the bottom to paste the findings back. The report holds no usernames or tokens.</p>
+
+<!-- 1. AniList -->
+<section id="anilist">
+  <h2>1 · AniList (spike 7)</h2>
+  <label>Username <input type="text" id="al-user" placeholder="your AniList name"></label>
+  <label>Client ID (private lists only) <input type="text" id="al-client" size="8"></label>
+  <button class="secondary" id="al-auth">Log in (implicit grant)</button>
+  <button id="al-load">Load lists</button>
+  <div id="al-out" class="muted"></div>
+</section>
+
+<!-- 2. AnimeThemes -->
+<section id="themes">
+  <h2>2 · AnimeThemes coverage (spike 6)</h2>
+  <label>Test the most recently completed <input type="number" id="at-n" value="20" min="1" max="50"> shows</label>
+  <button id="at-run">Resolve themes</button>
+  <div id="at-out" class="muted">Load AniList first.</div>
+</section>
+
+<!-- 3. iTunes Search -->
+<section id="itunes">
+  <h2>3 · iTunes Search / Lookup (spikes 4, 5)</h2>
+  <label>Term <input type="text" id="it-term" value="Gurenge LiSA" size="30"></label>
+  <label>Country <input type="text" id="it-cc" value="us" size="3"></label>
+  <button id="it-search">Search</button>
+  <label>Lookup selected in country <input type="text" id="it-cc2" value="jp" size="3"></label>
+  <button class="secondary" id="it-lookup">Cross-storefront lookup</button>
+  <button class="secondary" id="it-throttle" title="Sends 30 searches, one every 2 s, and stops at the first 403/429">Throttle probe (≈1 min)</button>
+  <div id="it-out" class="muted">Tip: click a theme row in section 2 to fill the search term.</div>
+</section>
+
+<!-- 4. Shortcuts bridge -->
+<section id="bridge">
+  <h2>4 · Shortcuts bridge (spikes 1, 2, 3)</h2>
+  <p class="muted">Build the shortcuts first, following <code>shortcuts/README.md</code>. Results come back via x-callback, which reloads this page, or paste them below.</p>
+  <label>Echo shortcut <input type="text" id="sc-echo" value="Anisong · Echo"></label>
+  <label>Read Tail shortcut <input type="text" id="sc-tail" value="Anisong · Read Tail"></label>
+  <label>Add Tracks shortcut <input type="text" id="sc-add" value="Anisong · Add Tracks"></label><br>
+  <label>Playlist name <input type="text" id="sc-pl" placeholder="exact playlist name"></label>
+  <label>Tail n <input type="number" id="sc-n" value="30" min="1" max="200"></label><br>
+  <button id="sc-run-echo">Run Echo</button>
+  <button id="sc-run-tail">Run Read Tail</button>
+  <button id="sc-run-stage">Add selected → new staging playlist</button>
+  <button class="secondary" id="sc-run-append">Add selected → append to playlist</button>
+  <div class="muted" id="sc-sel">0 tracks selected in section 3.</div>
+  <textarea id="sc-paste" placeholder="…or paste a shortcut result (clipboard fallback) here"></textarea>
+  <button class="secondary" id="sc-parse">Parse pasted result as…</button>
+  <select id="sc-parse-kind"><option value="echo">Echo</option><option value="tail">Read Tail</option><option value="add">Add Tracks</option></select>
+  <div id="sc-out"></div>
+</section>
+
+<!-- 5. Manual observations -->
+<section id="manual">
+  <h2>5 · Manual observations</h2>
+  <div class="checks" id="checks"></div>
+  <textarea id="notes" placeholder="Free-form notes: OS versions, browser, which Add Tracks variant you built, anything odd"></textarea>
+</section>
+
+<!-- Report -->
+<section>
+  <h2>Report</h2>
+  <button id="copy-report">Copy report</button>
+  <button class="secondary" id="reset">Reset all</button>
+  <pre id="report"></pre>
+  <h2>Log</h2>
+  <pre id="log"></pre>
+</section>
+
+<script>
+'use strict';
+/* ---------- state ---------- */
+const CHECKS = [
+  ['s1.urlToAddToPlaylist.mac', 'Spike 1 · macOS: Add Tracks put a NOT-in-library song into the playlist from a music.apple.com URL'],
+  ['s1.urlToAddToPlaylist.ios', 'Spike 1 · iOS: same as above'],
+  ['s1.createPlaylist', 'Spike 1 · Staging mode created a new playlist containing the songs'],
+  ['s1.orderPreserved', 'Spike 1 · Added songs appear in the order sent'],
+  ['s1.appendToHandmadePlaylist', 'Spike 1 · Append mode worked on your existing hand-made playlist'],
+  ['s2.tailOrderCorrect', 'Spike 2 · Read Tail returned the last n songs in playlist order'],
+  ['s3.xcallbackWorks', 'Spike 3 · x-callback returned to this page automatically (no paste needed)'],
+  ['s4.trackIdIsAppleMusicId', 'Spike 4 · The “Verify ID” link opened the same song in Apple Music'],
+];
+const KEY = 'anisong-spike-v1';
+const S = load();
+function load() {
+  try { return JSON.parse(localStorage.getItem(KEY)) || fresh(); } catch { return fresh(); }
+}
+function fresh() {
+  return { settings:{}, token:null, shows:[], themes:{}, itunes:[], selected:[], tail:null, report:{}, checks:{}, notes:'', log:[] };
+}
+function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch {} renderReport(); }
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function log(msg, cls='') {
+  S.log.push(`${new Date().toLocaleTimeString()} ${msg}`);
+  S.log = S.log.slice(-200);
+  $('log').textContent = S.log.join('\n');
+  save();
+}
+function rep(path, value) { S.report[path] = value; save(); }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+/* ---------- settings persistence ---------- */
+const SETTINGS = ['al-user','al-client','at-n','it-term','it-cc','it-cc2','sc-echo','sc-tail','sc-add','sc-pl','sc-n'];
+for (const id of SETTINGS) {
+  if (S.settings[id] != null) $(id).value = S.settings[id];
+  $(id).addEventListener('change', () => { S.settings[id] = $(id).value; save(); });
+}
+$('notes').value = S.notes || '';
+$('notes').addEventListener('input', () => { S.notes = $('notes').value; save(); });
+
+/* ---------- 1. AniList ---------- */
+// Handle implicit-grant redirect: #access_token=...
+if (location.hash.includes('access_token=')) {
+  const p = new URLSearchParams(location.hash.slice(1));
+  S.token = p.get('access_token');
+  history.replaceState(null, '', location.pathname + location.search);
+  log('AniList token received via implicit grant.');
+}
+$('al-auth').onclick = () => {
+  const id = $('al-client').value.trim();
+  if (!id) return alert('Enter your AniList client ID. Its redirect URL must be exactly ' + location.origin + location.pathname);
+  location.href = `https://anilist.co/api/v2/oauth/authorize?client_id=${encodeURIComponent(id)}&response_type=token`;
+};
+
+const AL_QUERY = `query ($name: String) {
+  MediaListCollection(userName: $name, type: ANIME) {
+    hasNextChunk
+    lists { name status isCustomList entries {
+      status repeat updatedAt createdAt
+      completedAt { year month day } startedAt { year month day }
+      media { id idMal format season seasonYear title { romaji english native } }
+    } }
+  }
+}`;
+
+$('al-load').onclick = async () => {
+  const name = $('al-user').value.trim();
+  if (!name) return alert('Enter your AniList username');
+  $('al-out').textContent = 'Loading…';
+  try {
+    const t0 = performance.now();
+    const res = await fetch('https://graphql.anilist.co', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'Accept':'application/json', ...(S.token ? { Authorization:'Bearer ' + S.token } : {}) },
+      body: JSON.stringify({ query: AL_QUERY, variables:{ name } })
+    });
+    const limit = res.headers.get('X-RateLimit-Limit'), remaining = res.headers.get('X-RateLimit-Remaining');
+    const body = await res.json();
+    rep('anilist.http', res.status);
+    rep('anilist.rateLimitHeader', limit ?? 'not exposed to browser');
+    rep('anilist.rateLimitRemaining', remaining ?? 'not exposed');
+    rep('anilist.authenticated', !!S.token);
+    if (body.errors) { rep('anilist.errors', body.errors.map(e => e.message)); throw new Error(body.errors.map(e => e.message).join('; ')); }
+    const coll = body.data.MediaListCollection;
+    const seen = new Map();
+    for (const l of coll.lists) for (const e of l.entries) {
+      if (!seen.has(e.media.id)) seen.set(e.media.id, e); // custom lists duplicate entries
+    }
+    S.shows = [...seen.values()];
+    const byStatus = {};
+    let noCompletedDate = 0, partialDate = 0;
+    for (const e of S.shows) {
+      byStatus[e.status] = (byStatus[e.status] || 0) + 1;
+      if (e.status === 'COMPLETED') {
+        const d = e.completedAt;
+        if (!d.year) noCompletedDate++; else if (!d.month || !d.day) partialDate++;
+      }
+    }
+    rep('anilist.ms', Math.round(performance.now() - t0));
+    rep('anilist.hasNextChunk', coll.hasNextChunk);
+    rep('anilist.entries', S.shows.length);
+    rep('anilist.byStatus', byStatus);
+    rep('anilist.completedWithoutDate', noCompletedDate);
+    rep('anilist.completedPartialDate', partialDate);
+    const recent = recentCompleted(8);
+    $('al-out').innerHTML = `<span class="ok">Loaded ${S.shows.length} entries</span> · rate-limit header: ${esc(limit ?? 'not exposed')}<br>`
+      + Object.entries(byStatus).map(([k,v]) => `${k}: ${v}`).join(' · ')
+      + `<br>Completed without date: ${noCompletedDate} · partial date: ${partialDate}`
+      + table(['Completed','Title','Format','AniList ID'], recent.map(e => [fmtDate(e.completedAt), title(e.media), e.media.format, e.media.id]));
+    $('at-out').textContent = 'Ready.';
+    log(`AniList: ${S.shows.length} entries loaded (HTTP ${res.status}).`);
+  } catch (err) {
+    $('al-out').innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+    log('AniList error: ' + err.message);
+  }
+};
+const dateKey = d => [d?.year ?? -1, d?.month ?? 0, d?.day ?? 0];
+const cmpDate = (a, b) => { const x = dateKey(a), y = dateKey(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] - y[i]; return 0; };
+const fmtDate = d => d?.year ? [d.year, d.month, d.day].filter(Boolean).join('-') : '—';
+const title = m => m.title.english || m.title.romaji;
+function recentCompleted(n) {
+  return S.shows.filter(e => e.status === 'COMPLETED').sort((a, b) => cmpDate(b.completedAt, a.completedAt)).slice(0, n);
+}
+function table(head, rows) {
+  return `<div class="scroll"><table><tr>${head.map(h => `<th>${esc(h)}</th>`).join('')}</tr>`
+    + rows.map(r => `<tr>${r.map(c => `<td>${typeof c === 'object' && c?.html ? c.html : esc(c)}</td>`).join('')}</tr>`).join('') + '</table></div>';
+}
+
+/* ---------- 2. AnimeThemes ---------- */
+const AT = 'https://api.animethemes.moe/anime';
+function atUrl(ids) {
+  const p = new URLSearchParams({
+    'filter[has]': 'resources', 'filter[site]': 'AniList', 'filter[external_id]': ids.join(','),
+    'include': 'animethemes.song.artists,resources', 'fields[anime]': 'name,slug,year', 'page[size]': '100'
+  });
+  return `${AT}?${p}`;
+}
+async function atFetch(ids) {
+  const res = await fetch(atUrl(ids), { headers:{ Accept:'application/json' } });
+  if (!res.ok) throw new Error(`AnimeThemes HTTP ${res.status}`);
+  const body = await res.json();
+  const out = {};
+  for (const a of body.anime || []) {
+    const r = (a.resources || []).find(r => /anilist/i.test(r.site) && ids.includes(Number(r.external_id)));
+    if (!r) continue;
+    out[r.external_id] = (a.animethemes || []).map(t => ({
+      kind: t.type, seq: t.sequence ?? 1, slug: t.slug,
+      title: t.song?.title ?? null, artists: (t.song?.artists || []).map(x => x.name), songId: t.song?.id ?? null
+    }));
+  }
+  return out;
+}
+$('at-run').onclick = async () => {
+  if (!S.shows.length) return alert('Load AniList first');
+  const n = Math.min(50, Math.max(1, +$('at-n').value || 20));
+  const shows = recentCompleted(n);
+  const ids = shows.map(e => e.media.id);
+  $('at-out').textContent = 'Resolving…';
+  try {
+    // Try batched lookup first.
+    let found = {}, batch = 'untested';
+    const t0 = performance.now();
+    try {
+      found = await atFetch(ids);
+      log(`AnimeThemes batch: ${Object.keys(found).length}/${ids.length} matched in one request.`);
+    } catch (e) { log('AnimeThemes batch failed: ' + e.message); batch = 'error: ' + e.message; }
+    // Probe whether misses are real misses or batching being ignored.
+    const missing = ids.filter(id => !(id in found));
+    let recoveredSingly = 0;
+    for (const id of missing) {
+      await sleep(700); // stay < 90/min
+      try { const one = await atFetch([id]); if (one[id]) { found[id] = one[id]; recoveredSingly++; } } catch (e) { log(`AnimeThemes single ${id}: ${e.message}`); }
+    }
+    if (batch === 'untested') batch = recoveredSingly === 0 ? 'works' : (recoveredSingly === missing.length ? 'ignored (only single IDs work)' : `partial (${recoveredSingly} recovered singly)`);
+    Object.assign(S.themes, found);
+    const withThemes = ids.filter(id => found[id]?.length);
+    const total = withThemes.reduce((s, id) => s + found[id].length, 0);
+    const missingSongTitle = withThemes.reduce((s, id) => s + found[id].filter(t => !t.title).length, 0);
+    rep('animethemes.batching', batch);
+    rep('animethemes.coverage', `${withThemes.length}/${ids.length} shows have themes`);
+    rep('animethemes.themesFound', total);
+    rep('animethemes.themesWithoutSongTitle', missingSongTitle);
+    rep('animethemes.ms', Math.round(performance.now() - t0));
+    rep('animethemes.uncoveredFormats', shows.filter(e => !found[e.media.id]?.length).map(e => `${e.media.format} ${e.media.seasonYear ?? ''}`.trim()));
+    const rows = [];
+    for (const e of shows) {
+      const th = found[e.media.id];
+      if (!th?.length) { rows.push([fmtDate(e.completedAt), title(e.media), {html:'<span class="bad">no themes</span>'}, '', '']); continue; }
+      for (const t of th) rows.push([fmtDate(e.completedAt), title(e.media), `${t.kind}${t.seq}`, t.title ?? '?', t.artists.join(', ')]);
+    }
+    $('at-out').innerHTML = `<span class="ok">${withThemes.length}/${ids.length} shows covered</span> · ${total} themes · batching: ${esc(batch)}`
+      + table(['Completed','Show','Theme','Song','Artists'], rows);
+    // Click a row to fill iTunes search
+    $('at-out').querySelectorAll('tr').forEach((tr, i) => {
+      if (!i) return; tr.style.cursor = 'pointer';
+      tr.onclick = () => { const c = tr.children; if (c[3]?.textContent) { $('it-term').value = `${c[3].textContent} ${c[4].textContent.split(',')[0]}`.trim(); $('it-term').dispatchEvent(new Event('change')); $('itunes').scrollIntoView({behavior:'smooth'}); } };
+    });
+  } catch (err) {
+    $('at-out').innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+    rep('animethemes.error', err.message);
+  }
+};
+
+/* ---------- 3. iTunes Search ---------- */
+function jsonp(url) {
+  return new Promise((resolve, reject) => {
+    const cb = '__jsonp_' + Math.random().toString(36).slice(2);
+    const s = document.createElement('script');
+    const timer = setTimeout(() => { cleanup(); reject(new Error('JSONP timeout')); }, 15000);
+    function cleanup() { delete window[cb]; s.remove(); clearTimeout(timer); }
+    window[cb] = data => { cleanup(); resolve(data); };
+    s.onerror = () => { cleanup(); reject(new Error('JSONP load error (blocked or throttled)')); };
+    s.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + cb;
+    document.head.appendChild(s);
+  });
+}
+// Try fetch (CORS); fall back to JSONP. Records which transport worked.
+async function itunes(path, params) {
+  const url = `https://itunes.apple.com/${path}?${new URLSearchParams(params)}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) { const e = new Error(`HTTP ${res.status}`); e.status = res.status; throw e; }
+    rep('itunes.transport', 'fetch (CORS ok)');
+    return await res.json();
+  } catch (err) {
+    if (err.status) throw err; // real HTTP error, not CORS
+    log(`iTunes fetch failed (${err.message}); trying JSONP.`);
+    const data = await jsonp(url);
+    rep('itunes.transport', 'JSONP (fetch blocked by CORS)');
+    return data;
+  }
+}
+const mmss = ms => ms ? `${Math.floor(ms / 60000)}:${String(Math.round(ms / 1000) % 60).padStart(2, '0')}` : '—';
+function renderItunes() {
+  const cc = $('it-cc').value.trim() || 'us';
+  if (!S.itunes.length) return;
+  $('it-out').innerHTML = table(['✓','trackId','Song','Artist','Album','Len','Stream','Preview','Verify ID'], S.itunes.map(t => [
+    {html:`<input type="checkbox" data-id="${t.trackId}" ${S.selected.includes(t.trackId) ? 'checked' : ''}>`},
+    t.trackId, t.trackName, t.artistName, t.collectionName, mmss(t.trackTimeMillis),
+    t.isStreamable === false ? 'no' : (t.isStreamable ? 'yes' : '?'),
+    {html: t.previewUrl ? `<audio controls preload="none" src="${esc(t.previewUrl)}"></audio>` : '—'},
+    {html:`<a href="https://music.apple.com/${esc(cc)}/song/${t.trackId}" target="_blank" rel="noopener">music.apple.com/…/song/${t.trackId}</a>`}
+  ]));
+  $('it-out').querySelectorAll('input[type=checkbox]').forEach(cb => cb.onchange = () => {
+    const id = Number(cb.dataset.id);
+    S.selected = cb.checked ? [...new Set([...S.selected, id])] : S.selected.filter(x => x !== id);
+    renderSel(); save();
+  });
+}
+function renderSel() { $('sc-sel').textContent = `${S.selected.length} tracks selected in section 3: ${S.selected.join(', ')}`; }
+$('it-search').onclick = async () => {
+  const term = $('it-term').value.trim(), cc = $('it-cc').value.trim() || 'us';
+  $('it-out').textContent = 'Searching…';
+  try {
+    const t0 = performance.now();
+    const data = await itunes('search', { term, country: cc, media: 'music', entity: 'song', limit: '15' });
+    S.itunes = data.results || [];
+    rep('itunes.search.ok', true);
+    rep('itunes.search.ms', Math.round(performance.now() - t0));
+    rep('itunes.fieldsSeen', Object.keys(S.itunes[0] || {}).sort());
+    rep('itunes.hasIsrc', S.itunes.some(t => 'isrc' in t));
+    log(`iTunes search "${term}" (${cc}): ${S.itunes.length} results.`);
+    renderItunes(); save();
+  } catch (err) {
+    $('it-out').innerHTML = `<span class="bad">${esc(err.message)}</span>`;
+    rep('itunes.search.error', err.message);
+  }
+};
+$('it-lookup').onclick = async () => {
+  if (!S.selected.length) return alert('Select at least one track in the results first');
+  const cc2 = $('it-cc2').value.trim() || 'jp';
+  try {
+    const data = await itunes('lookup', { id: S.selected.join(','), country: cc2 });
+    const got = new Set((data.results || []).map(r => r.trackId));
+    const res = S.selected.map(id => `${id}: ${got.has(id) ? 'found' : 'NOT found'} in ${cc2}`);
+    rep('itunes.crossStorefront', { from: $('it-cc').value, to: cc2, results: res.map(r => r.replace(/^\d+: /, '')) });
+    rep('itunes.lookupBatch', `${S.selected.length} ids → ${data.resultCount} results in one call`);
+    $('it-out').insertAdjacentHTML('beforeend', `<p>${res.map(esc).join('<br>')}</p>`);
+    log(`Lookup in ${cc2}: ${res.join('; ')}`);
+  } catch (err) { rep('itunes.lookup.error', err.message); log('Lookup error: ' + err.message); }
+};
+$('it-throttle').onclick = async () => {
+  if (!confirm('Sends up to 30 searches, one every 2 s (30/min), and stops at the first error. This may get your IP throttled briefly. Continue?')) return;
+  const terms = ['Gurenge','Unravel','Kaikai Kitan','Idol YOASOBI','Blue Bird','Silhouette','Again','Crossing Field','Shinzou wo Sasageyo','Inferno'];
+  let ok = 0, firstFail = null;
+  const t0 = performance.now();
+  for (let i = 0; i < 30; i++) {
+    try { await itunes('search', { term: terms[i % terms.length] + ' ' + i, entity: 'song', limit: '1', country: 'us' }); ok++; $('it-out').textContent = `Throttle probe: ${ok} ok…`; }
+    catch (e) { firstFail = `${e.message} after ${ok} ok in ${Math.round((performance.now() - t0) / 1000)} s`; break; }
+    await sleep(2000);
+  }
+  rep('itunes.throttleProbe', firstFail ? `failed: ${firstFail}` : `30/30 ok at 30 req/min`);
+  $('it-out').textContent = 'Throttle probe: ' + S.report['itunes.throttleProbe'];
+};
+
+/* ---------- 4. Shortcuts bridge ---------- */
+// The x-success target is this same page. Shortcuts appends `result=<output>`.
+function runShortcut(name, input, kind) {
+  const back = `${location.origin}${location.pathname}?bridge=${kind}`;
+  const q = [
+    'name=' + encodeURIComponent(name),
+    'input=text',
+    'text=' + encodeURIComponent(JSON.stringify(input)),
+    'x-success=' + encodeURIComponent(back),
+    'x-cancel=' + encodeURIComponent(back + '&cancelled=1'),
+    'x-error=' + encodeURIComponent(back + '&failed=1')
+  ].join('&');
+  S.pending = { kind, at: Date.now() }; save();
+  log(`Launching shortcut "${name}" (${kind}).`);
+  location.href = 'shortcuts://x-callback-url/run-shortcut?' + q;
+}
+$('sc-run-echo').onclick = () => runShortcut($('sc-echo').value, { ping: 'anisong', ts: Date.now(), unicode: '紅蓮華 · ½' }, 'echo');
+$('sc-run-tail').onclick = () => {
+  const playlist = $('sc-pl').value.trim(); if (!playlist) return alert('Enter the playlist name');
+  runShortcut($('sc-tail').value, { playlist, n: +$('sc-n').value || 30 }, 'tail');
+};
+function addTracks(mode) {
+  if (!S.selected.length) return alert('Select tracks in section 3 first');
+  const playlist = $('sc-pl').value.trim();
+  if (mode === 'append' && !playlist) return alert('Enter the playlist name');
+  if (mode === 'append' && !confirm(`Append ${S.selected.length} track(s) to "${playlist}"? This can't be undone from the app.`)) return;
+  runShortcut($('sc-add').value, { mode, playlist, country: $('it-cc').value.trim() || 'us', ids: S.selected }, 'add-' + mode);
+}
+$('sc-run-stage').onclick = () => addTracks('staging');
+$('sc-run-append').onclick = () => addTracks('append');
+
+// Parse shortcut output. Shortcuts may emit a JSON array, a single object, or
+// newline-separated JSON objects (a list of dictionaries coerced to text).
+function parseLoose(text) {
+  const t = (text || '').trim();
+  if (!t) return { format: 'empty', value: null };
+  try { const v = JSON.parse(t); return { format: Array.isArray(v) ? 'json-array' : 'json-object', value: v }; } catch {}
+  const lines = t.split(/\n(?=\s*\{)/);
+  try { const v = lines.map(l => JSON.parse(l)); return { format: 'ndjson-ish', value: v }; } catch {}
+  return { format: 'plain-text', value: t };
+}
+function handleResult(kind, raw, via) {
+  const p = parseLoose(raw);
+  log(`Shortcut result (${kind}) via ${via}: format=${p.format}, ${raw?.length ?? 0} chars.`);
+  if (kind === 'echo') {
+    const ok = p.value && p.value.ping === 'anisong';
+    rep('bridge.echo', { via, ok, format: p.format, unicodeIntact: p.value?.unicode === '紅蓮華 · ½' });
+    $('sc-out').innerHTML = ok ? `<p class="ok">Echo round trip works via ${esc(via)}.</p>` : `<p class="bad">Echo returned unexpected data:</p><pre>${esc(raw)}</pre>`;
+  } else if (kind === 'tail') {
+    const items = Array.isArray(p.value) ? p.value : (p.value?.items ?? []);
+    S.tail = items;
+    const keys = [...new Set(items.flatMap(i => Object.keys(i || {})))].sort();
+    rep('bridge.tail', { via, format: p.format, count: items.length, fields: keys, chars: raw.length });
+    $('sc-out').innerHTML = `<p class="${items.length ? 'ok' : 'bad'}">Read Tail: ${items.length} items · fields: ${esc(keys.join(', '))}</p>`
+      + `<p class="muted">Check in Music that this is the END of the playlist, in order, then tick the box in section 5.</p>`
+      + table(['#', ...keys], items.map((it, i) => [i + 1, ...keys.map(k => it?.[k] ?? '')]));
+  } else if (kind.startsWith('add')) {
+    rep('bridge.' + kind, { via, format: p.format, result: p.value });
+    $('sc-out').innerHTML = `<p>Add Tracks returned:</p><pre>${esc(typeof p.value === 'string' ? p.value : JSON.stringify(p.value, null, 2))}</pre>`
+      + `<p class="muted">Now check in Music whether the songs actually landed, then tick the boxes in section 5.</p>`;
+  }
+  save();
+}
+// x-callback return: ?bridge=<kind>&result=... (Shortcuts may append with '?' or '&')
+function handleReturn() {
+  const href = location.href;
+  const kindM = href.match(/[?&]bridge=([^&#?]+)/);
+  if (!kindM) return;
+  const kind = decodeURIComponent(kindM[1]);
+  if (/[?&]cancelled=1/.test(href)) { log(`Shortcut ${kind} cancelled.`); rep('bridge.' + kind + '.cancelled', true); }
+  else if (/[?&]failed=1/.test(href)) {
+    const em = href.match(/[?&]errorMessage=([^&#]*)/);
+    const msg = em ? decodeURIComponent(em[1].replace(/\+/g, ' ')) : 'unknown';
+    log(`Shortcut ${kind} failed: ${msg}`); rep('bridge.' + kind + '.error', msg);
+  } else {
+    const rm = href.match(/[?&]result=([^&#]*)/);
+    const raw = rm ? decodeURIComponent(rm[1].replace(/\+/g, ' ')) : '';
+    rep('bridge.xcallbackReturned', true);
+    handleResult(kind, raw, 'x-callback');
+  }
+  history.replaceState(null, '', location.pathname);
+}
+$('sc-parse').onclick = () => handleResult($('sc-parse-kind').value, $('sc-paste').value, 'clipboard');
+
+/* ---------- 5. Manual checks ---------- */
+$('checks').innerHTML = CHECKS.map(([k, t]) => `<label><input type="checkbox" data-k="${k}" ${S.checks[k] ? 'checked' : ''}> ${esc(t)}</label>`).join('');
+$('checks').querySelectorAll('input').forEach(cb => cb.onchange = () => { S.checks[cb.dataset.k] = cb.checked; save(); });
+
+/* ---------- report ---------- */
+function buildReport() {
+  return {
+    generated: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+    automated: S.report,
+    manual: Object.fromEntries(CHECKS.map(([k]) => [k, !!S.checks[k]])),
+    notes: S.notes || ''
+  };
+}
+function renderReport() { $('report').textContent = JSON.stringify(buildReport(), null, 2); }
+$('copy-report').onclick = async () => {
+  const text = JSON.stringify(buildReport(), null, 2);
+  try { await navigator.clipboard.writeText(text); $('copy-report').textContent = 'Copied ✓'; }
+  catch { prompt('Copy the report:', text); }
+  setTimeout(() => $('copy-report').textContent = 'Copy report', 1500);
+};
+$('reset').onclick = () => { if (confirm('Clear all spike state (including the AniList token)?')) { localStorage.removeItem(KEY); location.href = location.pathname; } };
+
+/* ---------- init ---------- */
+$('log').textContent = S.log.join('\n');
+renderSel(); renderItunes(); renderReport();
+handleReturn();
+if (S.shows.length) $('al-out').innerHTML = `<span class="ok">${S.shows.length} entries cached</span> (reload to refresh)`;
+</script>
+</body>
+</html>
