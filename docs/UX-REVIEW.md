@@ -97,6 +97,34 @@ layout and the "Done · Export" exit.
   counterpart, Inter; text contrast ≥ 4.5:1 in both. This covers Batch D's
   contrast item.
 
+## Playlist library ✅
+From the "Playlist library" mockups: the playlist stops being a snapshot that
+each import overwrites and becomes songs that persist across imports, each
+linked to its show and OP/ED.
+- [x] **Import with a diff:** add a file or paste, see new / missing /
+  renamed / your adds confirmed / unchanged, watch the new songs link to
+  shows, then **Save sync**. **Undo last sync** puts back the previous
+  version. The same component serves setup ("Your playlist", no diff) and
+  Settings ("Re-sync").
+- [x] **Order you can trust:** only an ordered import (a Mac export in
+  playlist order) sets the order; an iPhone re-sync keeps it and appends new
+  songs. Confirmed adds go to the end at once.
+- [x] **Linking without Apple Music lookups:** add log, reviewed matches,
+  then names against every show's openings and endings. Unlinked songs are
+  plain, not warnings.
+- [x] **Your playlist:** All (playlist order, then adds since the sync), By
+  show (newest watched first, missing OP/EDs as ghost rows, "Review the N
+  missing"), Unlinked, Added, not seen; search, `J`/`K`, `L` takes the
+  nearest guess; change a link or unlink in the detail pane.
+- [x] **Playlist chip** for the header: synced, out of date (4 weeks),
+  linking, or none yet, with a popover.
+- [x] **Duplicate check by theme:** a playlist song linked to the same OP/ED
+  counts even under a translated title ("linked to this song").
+- [ ] **Wire-up** in the app shell: the header chip, the page's route,
+  Settings → Playlist, setup's playlist step, and "suggest last show" in the
+  anime page's quick start.
+- [ ] *(Optional)* ▶ preview on a playlist row (one iTunes lookup, on demand).
+
 ## Batch B: faster, safer decisions
 - [ ] **Undo toast** after each decision ("Kept *Hologram* (held back) ·
   Undo"), plus `U` to undo the last few.

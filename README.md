@@ -37,7 +37,7 @@ Status: M1–M4 and M6 done; duplicate prevention in progress.
   its last songs onto your shows, suggests the last show, and flags songs
   already in the playlist during review.
 - **Duplicate prevention:** the app holds back songs already in the playlist,
-  using a synced playlist snapshot and its own add log ("Yes, mark as added").
+  using the synced playlist library and its own add log ("Yes, mark as added").
 
 Everything is cached in IndexedDB. Don't commit personal playlist exports;
 the fixtures in `src/lib/__fixtures__/playlists/` are synthetic.
