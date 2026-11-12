@@ -1,11 +1,13 @@
 # anisong-curator — Prototype Spec
 
-Status: draft v0.4 · Scope: single-user, single-page prototype
+Status: draft v0.5 · Scope: single-user, single-page prototype
 Decision log: v0.2 drops the Apple Developer Program requirement. Apple Music
 access goes through the keyless iTunes Search/Lookup APIs (read) and Apple
 Shortcuts (playlist read/write). The MusicKit path is kept as an upgrade (§10).
 v0.3 moves AnimeThemes from its deprecated REST API to GraphQL (§9.1).
 v0.4 records what M3's live evaluation established about iTunes (§9.2).
+v0.5 (M6) reads the playlist from a Music.app **export or pasted rows**
+instead of the "Read Tail" Shortcut (§9.5, §9.6).
 
 ## 1. User story
 
@@ -113,7 +115,7 @@ Match      { songId, trackId, country, trackName, artistName, collectionName,
 Decision   { themeId, decision: 'keep'|'skip'|'later', decidedAt }
 CommitLog  { runId, trackIds[], target: 'staging'|'append', playlistName, at, confirmed }
 RunCursor  { lastProcessedEntries: {anilistId → updatedAt}, sortField, committedAt }
-PlaylistSnapshot { playlistName, tracks[{title, artist, album, durationMs}], fetchedAt }
+PlaylistSnapshot { name, rows[{position, title, artist, album, durationMs}], importedAt }  // Dexie v3
 ```
 
 `CommitLog` matters more here than in the MusicKit design. The playlist can only
@@ -316,14 +318,29 @@ show's OP added years ago) are caught by the CommitLog only if the app added
 them. Optionally, import the **whole** playlist once (§9.6) to seed the snapshot.
 
 ### 9.5 V2: inferring the lower bound from the playlist tail
-1. "Read Tail" (n = 30) gives `{title, artist, album, durationMs}[]`.
+1. **Import the playlist** (M6): Music.app → File → Library → Export
+   Playlist… (Plain Text: tab-separated, usually UTF-16LE + BOM with CR line
+   endings, `Time` in seconds; columns found by header name), or ⌘C rows
+   pasted from the song list (no header; Name / m:ss Time / Artist / Album are
+   guessed and shown for checking). It is saved as a `PlaylistSnapshot`, and
+   the last n = 30 rows are the tail. This replaces the "Read Tail" Shortcut
+   for reading: no x-callback round trip, and the whole playlist arrives at
+   once. Parser: `playlistImport.ts`; inference: `tailInference.ts`.
 2. Build an index of normalized `title|artist` keys from the themes of every
    Bucket A/B show. This needs one-time theme resolution for the whole list.
    With batched GraphQL lookups that's ~10 requests for 500 shows, a few
    seconds. Cache it forever. **No iTunes queries are needed.** This is
-   name-to-name matching, not catalog matching.
-3. Map each tail track to `{show, confidence}`, or to "not an anisong". The
-   album name ("… Opening Theme") and the anime title are extra signals.
+   name-to-name matching, not catalog matching. (Jikan is skipped here to
+   keep it cheap; Jikan-only shows can't be inferred.)
+3. Map each tail track to `{show, confidence}`, or to "not an anisong". A
+   cached catalog match with the same normalized title + artist is exact
+   (confidence 1). Otherwise the row is scored with the matcher's
+   `scoreTrack()` against every theme that survives a bigram prefilter. The
+   album name ("… Opening Theme") and the anime title in the track name are
+   extra signals. Accept ≥ 0.6 **and** (artist agrees **or** the show is
+   named): a title alone ("Personal" by someone else) is not evidence.
+   Fixture result on US-store names (translated, mistranslated, localized
+   artists, plus same-title non-anisongs and covers): 19/19 rows right.
 4. Suggest the hit with the **greatest position in the current sort order**,
    not simply the last playlist track. Playlist order and watch order disagree
    whenever songs were added out of order. Show the mapped tail so you can
@@ -333,10 +350,10 @@ Once saved state (§7) exists, V2 becomes a drift check: does the tail match
 the CommitLog?
 
 ### 9.6 Other
-- **Full playlist import (optional).** Run "Read Tail" with `n = 100000`. A
-  large JSON result may be too long for an x-callback URL. Use the clipboard,
-  or Music.app → File → Library → Export Playlist (a tab-separated `.txt`,
-  UTF-16), which the app can parse from a file picker.
+- **Full playlist import (M6).** The Music.app export (§9.5) holds the whole
+  playlist, so it also seeds the §9.4 snapshot check: Review shows an
+  "already in playlist" badge (title + artist, ±3 s) and can hide those
+  songs. Re-import whenever the playlist changes by hand.
 - **x-callback length.** The result goes into a URL. Keep tail reads small
   (n ≤ ~100) and use the clipboard for anything larger.
 - **Playlist names aren't unique.** The Shortcut picks the first match. Tell
@@ -387,7 +404,7 @@ Network probes weren't possible while this spec was written. In priority order:
 | M3 ✅ | iTunes matcher + review UI with previews + URL paste | Match precision within the 20/min budget |
 | M4 | Shortcuts bridge: staging playlist, verify via Read Tail | End-to-end Mode 1 |
 | M5 | Decisions + CommitLog + cursor (§7), dedupe | Periodic use without re-picking |
-| M6 | V2 tail inference | First-run bootstrap / drift detection |
+| M6 ✅ | Playlist import (export / paste) + V2 tail inference + snapshot dedupe badge | First-run bootstrap / drift detection |
 
 Stack: Vite + React + TypeScript, Dexie, plain `fetch` (with a JSONP helper),
 and `fastest-levenshtein` or a small token-set ratio. Test the matcher against

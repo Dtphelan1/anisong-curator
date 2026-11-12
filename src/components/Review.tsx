@@ -4,6 +4,7 @@ import type { DecisionValue } from '../lib/db';
 import { lookup, parseAppleMusicUrl, searchSongs, songUrl, type ItunesTrack } from '../lib/itunes';
 import { confidenceOf, rankTracks, type Flag, type MatchPrefs } from '../lib/matcher';
 import type { Candidate, MatchResult } from '../lib/matching';
+import { chosenTrack, findInPlaylist, type InPlaylist, type PlaylistIndex } from '../lib/tailInference';
 import { useDecisions, useMatching, type ReviewItem } from '../lib/useMatching';
 
 interface Props {
@@ -11,6 +12,8 @@ interface Props {
   country: string;
   prefs: MatchPrefs;
   autoplay: boolean;
+  /** Imported playlist snapshot, for the "already in playlist" check (§9.4). */
+  playlist?: PlaylistIndex | null;
   onSettings: (patch: { country?: string; preferTvSize?: boolean; autoplay?: boolean }) => void;
   onBack: () => void;
 }
@@ -24,9 +27,10 @@ const CONF_LABEL = { high: 'confident', check: 'check me', low: 'unlikely', none
 const mmss = (ms: number | null) => (ms ? `${Math.floor(ms / 60000)}:${String(Math.round(ms / 1000) % 60).padStart(2, '0')}` : '');
 const isTyping = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
 
-export function Review({ items, country, prefs, autoplay, onSettings, onBack }: Props) {
+export function Review({ items, country, prefs, autoplay, playlist = null, onSettings, onBack }: Props) {
   const [index, setIndex] = useState(0);
   const [onlyUndecided, setOnlyUndecided] = useState(false);
+  const [hideInPlaylist, setHideInPlaylist] = useState(false);
   const [showCandidates, setShowCandidates] = useState(false);
   const { matches, status, errors, choose, rematch } = useMatching(items, country, prefs, index);
   const { decisions, decide } = useDecisions(useMemo(() => items.map((i) => i.key), [items]));
@@ -38,9 +42,22 @@ export function Review({ items, country, prefs, autoplay, onSettings, onBack }: 
   const chosen = match?.candidates.find((c) => c.track.trackId === match.chosenId);
   const decision = item ? decisions.get(item.key) : undefined;
 
+  const inPlaylist = useMemo(() => {
+    const m = new Map<string, InPlaylist>();
+    if (!playlist) return m;
+    for (const it of items) {
+      const t = chosenTrack(matches.get(it.key));
+      const hit = t && findInPlaylist(playlist, t);
+      if (hit) m.set(it.key, hit);
+    }
+    return m;
+  }, [playlist, items, matches]);
+  const hidden = useCallback((i: number) => hideInPlaylist && inPlaylist.get(items[i]!.key)?.kind === 'duplicate', [hideInPlaylist, inPlaylist, items]);
+  const dupCount = useMemo(() => [...inPlaylist.values()].filter((x) => x.kind === 'duplicate').length, [inPlaylist]);
+
   const visibleIdx = useMemo(
-    () => items.map((_, i) => i).filter((i) => !onlyUndecided || !decisions.has(items[i]!.key) || i === index),
-    [items, onlyUndecided, decisions, index],
+    () => items.map((_, i) => i).filter((i) => i === index || ((!onlyUndecided || !decisions.has(items[i]!.key)) && !hidden(i))),
+    [items, onlyUndecided, decisions, index, hidden],
   );
   const step = useCallback((dir: 1 | -1) => {
     const pos = visibleIdx.indexOf(index);
@@ -49,9 +66,9 @@ export function Review({ items, country, prefs, autoplay, onSettings, onBack }: 
   }, [visibleIdx, index]);
   const nextUndecided = useCallback(() => {
     const order = [...items.keys()].slice(index + 1).concat([...items.keys()].slice(0, index));
-    const next = order.find((i) => !decisions.has(items[i]!.key) && i !== index);
+    const next = order.find((i) => !decisions.has(items[i]!.key) && i !== index && !hidden(i));
     setIndex(next ?? Math.min(items.length - 1, index + 1));
-  }, [items, index, decisions]);
+  }, [items, index, decisions, hidden]);
 
   const doDecide = useCallback(async (d: DecisionValue) => {
     if (!item) return;
@@ -118,6 +135,11 @@ export function Review({ items, country, prefs, autoplay, onSettings, onBack }: 
           {counts.pending > 0 && <span className="muted">· matching {counts.pending} more (~{Math.ceil(counts.pending * 1.7 * 3 / 60)} min)</span>}
           <span className="spacer" />
           <label><input type="checkbox" checked={onlyUndecided} onChange={(e) => setOnlyUndecided(e.target.checked)} /> Undecided only</label>
+          {playlist && (
+            <label title="Same title and artist (±3 s) as a song in your imported playlist">
+              <input type="checkbox" checked={hideInPlaylist} onChange={(e) => setHideInPlaylist(e.target.checked)} /> Hide already in playlist ({dupCount})
+            </label>
+          )}
         </div>
 
         <div className="song-head">
@@ -129,7 +151,7 @@ export function Review({ items, country, prefs, autoplay, onSettings, onBack }: 
           <div>{item.theme.artists.join(', ') || <span className="muted">artist unknown</span>}</div>
         </div>
 
-        <MatchView item={item} match={match} chosen={chosen} status={status.get(item.key)} error={errors.get(item.key)} audioRef={audio} />
+        <MatchView item={item} match={match} chosen={chosen} status={status.get(item.key)} error={errors.get(item.key)} audioRef={audio} inPlaylist={inPlaylist.get(item.key)} />
 
         <div className="row actions">
           <button onClick={() => doDecide('keep')} disabled={!chosen} className={decision?.decision === 'keep' ? 'on' : ''}>Keep <kbd>K</kbd></button>
@@ -165,7 +187,7 @@ export function Review({ items, country, prefs, autoplay, onSettings, onBack }: 
         </div>
       </section>
 
-      <Queue items={items} index={index} onPick={setIndex} matches={matches} status={status} decisions={decisions} />
+      <Queue items={items} index={index} onPick={setIndex} matches={matches} status={status} decisions={decisions} inPlaylist={inPlaylist} />
       <KeptSummary items={items} matches={matches} decisions={decisions} country={country} />
     </>
   );
@@ -180,8 +202,16 @@ function Flags({ c, theme }: { c: Candidate; theme: ReviewItem['theme'] }) {
   );
 }
 
-function MatchView({ item, match, chosen, status, error, audioRef }: {
-  item: ReviewItem; match?: MatchResult; chosen?: Candidate; status?: string; error?: string; audioRef: React.RefObject<HTMLAudioElement>;
+function InPlaylistBadge({ hit }: { hit?: InPlaylist }) {
+  if (!hit) return null;
+  const where = `Playlist #${hit.row.position}: ${hit.row.title} — ${hit.row.artist}`;
+  return hit.kind === 'duplicate'
+    ? <span className="badge in-playlist" title={where}>already in playlist</span>
+    : <span className="badge warn" title={where}>other version in playlist</span>;
+}
+
+function MatchView({ item, match, chosen, status, error, audioRef, inPlaylist }: {
+  item: ReviewItem; match?: MatchResult; chosen?: Candidate; status?: string; error?: string; audioRef: React.RefObject<HTMLAudioElement>; inPlaylist?: InPlaylist;
 }) {
   if (!match || status === 'matching' || status === 'queued') {
     return <div className="match pending">{status === 'matching' ? 'Searching Apple Music…' : 'Queued for matching…'}<audio ref={audioRef} /></div>;
@@ -201,6 +231,7 @@ function MatchView({ item, match, chosen, status, error, audioRef }: {
           <span className={`badge conf-${conf}`}>{match.userPicked ? 'your pick' : CONF_LABEL[conf]}</span>
           {match.method === 'animethemes-link' && <span className="badge" title="Linked on AnimeThemes; no search needed">linked</span>}
           <Flags c={chosen} theme={item.theme} />
+          <InPlaylistBadge hit={inPlaylist} />
         </div>
         <div>{t.artistName}</div>
         <div className="muted">{t.collectionName} · {mmss(t.trackTimeMillis)}</div>
@@ -275,9 +306,9 @@ function ManualSearch({ item, country, prefs, inputRef, onUse }: {
   );
 }
 
-function Queue({ items, index, onPick, matches, status, decisions }: {
+function Queue({ items, index, onPick, matches, status, decisions, inPlaylist }: {
   items: ReviewItem[]; index: number; onPick: (i: number) => void;
-  matches: Map<string, MatchResult>; status: Map<string, string>; decisions: Map<string, { decision: DecisionValue }>;
+  matches: Map<string, MatchResult>; status: Map<string, string>; decisions: Map<string, { decision: DecisionValue }>; inPlaylist: Map<string, InPlaylist>;
 }) {
   return (
     <section className="card">
@@ -293,7 +324,7 @@ function Queue({ items, index, onPick, matches, status, decisions }: {
               <tr key={it.key} className={i === index ? 'current' : ''} onClick={() => onPick(i)}>
                 <td className="nowrap">{d === 'keep' ? '✓' : d === 'skip' ? '✕' : d === 'later' ? '…' : ''}</td>
                 <td className="nowrap muted">{it.theme.slug}</td>
-                <td>{it.theme.songTitle} <span className="muted">· {displayTitle(it.show)}</span></td>
+                <td>{it.theme.songTitle} <span className="muted">· {displayTitle(it.show)}</span><InPlaylistBadge hit={inPlaylist.get(it.key)} /></td>
                 <td className="nowrap">{st === 'done' || st === 'error' ? <span className={`badge conf-${conf}`}>{m?.userPicked ? 'your pick' : CONF_LABEL[conf]}</span> : <span className="muted">{st}</span>}</td>
               </tr>
             );

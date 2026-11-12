@@ -73,3 +73,20 @@ table.queue tr.current { background: var(--bound); }
 ol.kept { margin: 8px 0 0; padding-left: 22px; }
 ol.kept li { margin: 2px 0; }
 @media (max-width: 600px) { .match { flex-direction: column; } .match audio { width: 100%; } }
+
+/* ---- Playlist import & tail inference (M6) ---- */
+:root { --suggest: #e8f0ff; }
+@media (prefers-color-scheme: dark) { :root { --suggest: #1d2747; } }
+textarea.paste { display: block; width: 100%; font: 12px/1.4 ui-monospace, monospace; padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--fg); resize: vertical; white-space: pre; }
+input[type='file'] { border: 0; padding: 0; background: none; }
+.preview { margin-top: 8px; }
+.warn-text { color: var(--warn); margin: 4px 0; }
+.ok-text { color: var(--ok); }
+ul.warnings { color: var(--warn); margin: 4px 0; padding-left: 20px; }
+table.rows td, table.tail-map td { padding: 3px 6px; }
+.suggestion { margin: 8px 0; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--suggest); }
+.suggestion.none { border-color: var(--line); background: var(--bg); color: var(--muted); }
+table.tail-map tr.unmatched td { opacity: 0.6; }
+table.tail-map tr.bound { background: var(--bound); }
+.badge.suggested { color: var(--accent); border-color: currentColor; }
+.badge.in-playlist { color: var(--ok); border-color: currentColor; }

@@ -8,6 +8,8 @@ interface Props {
   onOrder: (o: OrderOptions) => void;
   boundId: number | null;
   onBound: (id: number | null) => void;
+  /** Show suggested by the playlist tail (V2), if any. */
+  suggestedId?: number | null;
   candidateCount: number;
   onContinue: () => void;
 }
@@ -16,7 +18,7 @@ const STATUS_LABEL: Record<string, string> = {
   COMPLETED: 'Completed', DROPPED: 'Dropped', PAUSED: 'Paused', CURRENT: 'Watching', REPEATING: 'Rewatching',
 };
 
-export function ShowPicker({ ordered, order, onOrder, boundId, onBound, candidateCount, onContinue }: Props) {
+export function ShowPicker({ ordered, order, onOrder, boundId, onBound, suggestedId = null, candidateCount, onContinue }: Props) {
   const boundIndex = boundId === null ? -1 : ordered.findIndex((o) => o.show.anilistId === boundId);
   const isCandidate = (i: number) =>
     boundIndex < 0 || (order.direction === 'asc' ? i > boundIndex : i < boundIndex);
@@ -73,7 +75,7 @@ export function ShowPicker({ ordered, order, onOrder, boundId, onBound, candidat
                     {o.keySource === 'fallback' && <span className="badge" title="No completion date; using last list update">last update</span>}
                     {partial && <span className="badge" title="AniList only has part of this date">partial</span>}
                   </td>
-                  <td>{displayTitle(s)}</td>
+                  <td>{displayTitle(s)}{s.anilistId === suggestedId && <span className="badge suggested" title="Suggested from your playlist's last songs">suggested</span>}</td>
                   <td><span className={`badge status-${s.status.toLowerCase()}`}>{STATUS_LABEL[s.status] ?? s.status}</span></td>
                   <td className="muted nowrap">{[s.season?.toLowerCase(), s.seasonYear].filter(Boolean).join(' ')} {s.format}</td>
                 </tr>

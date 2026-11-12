@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Show, ThemeLookup } from './types';
 import { authorizeUrl, consumeTokenFromHash, fetchAnimeList, fetchViewerName } from './lib/anilist';
-import { loadShows, saveShows, themeCache } from './lib/db';
+import { loadLatestSnapshot, loadShows, saveShows, themeCache, type PlaylistSnapshot } from './lib/db';
 import { candidatesAfterBound, orderShows } from './lib/ordering';
 import { useSettings } from './lib/settings';
 import { resolveThemes, type ResolveProgress } from './lib/themes';
 import { ShowPicker } from './components/ShowPicker';
+import { PlaylistPanel } from './components/PlaylistPanel';
+import { indexPlaylist } from './lib/tailInference';
 import { ThemeList } from './components/ThemeList';
 import { Review } from './components/Review';
 import { buildReviewItems } from './lib/useMatching';
@@ -23,6 +25,8 @@ export function App() {
   const [lookups, setLookups] = useState<Map<number, ThemeLookup>>(new Map());
   const [themeErrors, setThemeErrors] = useState<Map<number, string>>(new Map());
   const [progress, setProgress] = useState<ResolveProgress | null>(null);
+  const [snapshot, setSnapshot] = useState<PlaylistSnapshot | null>(null);
+  const [suggestedId, setSuggestedId] = useState<number | null>(null);
 
   // Implicit-grant return, then cached list.
   useEffect(() => {
@@ -32,6 +36,7 @@ export function App() {
       fetchViewerName(token).then((userName) => update({ userName })).catch((e: Error) => setError(e.message));
     }
     loadShows().then(({ shows, at }) => { setShows(shows); setLoadedAt(at); });
+    loadLatestSnapshot().then(setSnapshot);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -46,6 +51,7 @@ export function App() {
       sortThemes(lookups.get(s.anilistId)?.themes ?? []).filter((t) => settings.includeInserts || t.kind !== 'IN')),
     [candidates, lookups, settings.includeInserts],
   );
+  const playlistIndex = useMemo(() => (snapshot ? indexPlaylist(snapshot.rows) : null), [snapshot]);
   const prefs = useMemo(() => ({ preferTvSize: settings.preferTvSize }), [settings.preferTvSize]);
 
   async function loadList() {
@@ -103,6 +109,19 @@ export function App() {
         {error && <p className="bad">{error}</p>}
       </section>
 
+      {step === 'pick' && (
+        <PlaylistPanel
+          snapshot={snapshot}
+          onSnapshot={setSnapshot}
+          shows={shows}
+          ordered={ordered}
+          direction={settings.order.direction}
+          boundId={settings.boundId}
+          onBound={(boundId) => update({ boundId })}
+          onSuggest={setSuggestedId}
+        />
+      )}
+
       {shows.length > 0 && step === 'pick' && (
         <ShowPicker
           ordered={ordered}
@@ -110,6 +129,7 @@ export function App() {
           onOrder={(order) => update({ order })}
           boundId={settings.boundId}
           onBound={(boundId) => update({ boundId })}
+          suggestedId={suggestedId}
           candidateCount={candidates.length}
           onContinue={() => findThemes()}
         />
@@ -136,6 +156,7 @@ export function App() {
           country={settings.country}
           prefs={prefs}
           autoplay={settings.autoplay}
+          playlist={playlistIndex}
           onSettings={update}
           onBack={() => setStep('themes')}
         />

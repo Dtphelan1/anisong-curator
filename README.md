@@ -13,11 +13,16 @@ npm run dev     # http://localhost:5173
 npm test
 ```
 
-Status: M1–M3 done.
+Status: M1–M3 and M6 done.
 - **M1:** AniList list, ordering, and the "last show added" picker.
 - **M2:** OP/ED lookup via AnimeThemes GraphQL, with a Jikan fallback.
 - **M3:** Apple Music matching via iTunes Search, plus a keyboard-driven review
   with previews: `K` keep, `S` skip, `L` later, `/` search or paste a link.
+
+- **M6:** import the playlist (Music.app export or pasted rows); the app maps
+  its last songs onto your shows, suggests the last show, and flags songs
+  already in the playlist during review. Real exports dropped into
+  `src/lib/__fixtures__/playlists/*.txt` are parsed by the test suite.
 
 Everything is cached in IndexedDB. Next is M4: adding kept songs to the playlist
 via Shortcuts.
