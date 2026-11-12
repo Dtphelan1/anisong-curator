@@ -270,7 +270,6 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
         haveCount={passes.have.length} haveUndecided={haveUndecided.length}
         passDone={phase === 'review' ? reviewFinished : phase === 'have' && haveUndecided.length === 0}
         onNext={() => next && goPhase(next)} onSkipRest={skipRest} onBack={onBack}
-        settings={{ country, preferTvSize: prefs.preferTvSize, playlistName }} onSettings={onSettings}
       />
       <PhaseBar phase={phase} counts={{ review: passes.review.length, have: passes.have.length }}
         finished={{ review: reviewFinished, have: haveFinished, add: !!session.done }} onPhase={goPhase} />
