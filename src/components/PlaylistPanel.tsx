@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { Show, ThemeLookup } from '../types';
 import { displayTitle } from '../lib/anilist';
-import { db, deleteSnapshot, saveSnapshot, themeCache, type PlaylistSnapshot } from '../lib/db';
+import { db, deleteSnapshot, saveSnapshot, SNAPSHOT_SOURCE, snapshotFromParse, themeCache, type PlaylistSnapshot } from '../lib/db';
 import type { MatchResult } from '../lib/matching';
 import type { OrderedShow } from '../lib/ordering';
 import { describeMapping, parsePlaylist, type ParseResult, type PlaylistRow } from '../lib/playlistImport';
@@ -23,9 +23,10 @@ interface Props {
 const mmss = (ms: number | null) => (ms ? `${Math.floor(ms / 60000)}:${String(Math.round(ms / 1000) % 60).padStart(2, '0')}` : '');
 
 /**
- * Import the playlist (Music.app export or pasted rows), keep it as a
- * snapshot, and suggest the "last show already in the playlist" from its
- * tail (SPEC §9.5).
+ * Import the playlist (Music.app export, pasted rows, or the Anisong Export
+ * Playlist shortcut's text), keep it as a snapshot, and suggest the "last
+ * show already in the playlist" from its tail. The tail only means something
+ * for an ordered snapshot.
  */
 export function PlaylistPanel({ snapshot, onSnapshot, shows, ordered, direction, boundId, onBound, onSuggest, playlistName }: Props) {
   const [importing, setImporting] = useState(false);
@@ -49,17 +50,31 @@ export function PlaylistPanel({ snapshot, onSnapshot, shows, ordered, direction,
         <div className="row">
           <span>
             <strong>{snapshot.name}</strong> · {snapshot.rows.length} songs · imported {new Date(snapshot.importedAt).toLocaleString()}
-            {snapshot.format === 'pasted' && <span className="badge" title="Columns were guessed from pasted rows">pasted</span>}
+            {' '}<span className="badge" title={snapshot.format === 'pasted' ? 'Columns were guessed from pasted rows' : undefined}>{SNAPSHOT_SOURCE[snapshot.format]}</span>
           </span>
           <button className="secondary" onClick={() => setImporting(true)}>Re-import</button>
           <button className="link" onClick={remove}>Remove</button>
         </div>
       )}
       {showForm && <ImportForm defaultName={playlistName} onSave={save} onCancel={snapshot ? () => setImporting(false) : undefined} />}
-      {snapshot && !importing && (
-        <TailView snapshot={snapshot} shows={shows} ordered={ordered} direction={direction} boundId={boundId} onBound={onBound} onSuggest={onSuggest} />
-      )}
+      {snapshot && !importing && (snapshot.ordered
+        ? <TailView snapshot={snapshot} shows={shows} ordered={ordered} direction={direction} boundId={boundId} onBound={onBound} onSuggest={onSuggest} />
+        : <UnorderedNotice snapshot={snapshot} onSuggest={onSuggest} />)}
     </section>
+  );
+}
+
+/** No "last show" from a snapshot whose row order isn't playlist order. */
+function UnorderedNotice({ snapshot, onSuggest }: { snapshot: PlaylistSnapshot; onSuggest: (id: number | null) => void }) {
+  useEffect(() => { onSuggest(null); }, [onSuggest]);
+  const why = snapshot.format === 'shortcut'
+    ? 'Songs from Anisong Export Playlist may not come in playlist order'
+    : `This ${snapshot.format === 'export' ? 'export' : 'list'} is sorted${snapshot.sortedBy ? ` by ${{ title: 'Name', artist: 'Artist', album: 'Album' }[snapshot.sortedBy.field]}` : ''}, not in playlist order`;
+  return (
+    <p className="warn-text small unordered">
+      {why}, so it can't suggest the last show. It's still used to catch duplicates. For a suggestion, export from Music on a Mac
+      with <strong>View → Sort By → Playlist Order</strong>, then <strong>File → Library → Export Playlist…</strong>, and re-import.
+    </p>
   );
 }
 
@@ -71,8 +86,10 @@ function ImportForm({ onSave, onCancel, defaultName = '' }: { onSave: (s: Playli
 
   function onText(v: string) {
     setText(v);
-    setParsed(v.trim() ? parsePlaylist(v) : null);
-    if (!name) setName(defaultName || 'Pasted rows');
+    const p = v.trim() ? parsePlaylist(v) : null;
+    setParsed(p);
+    if (p?.playlistName) setName(p.playlistName);
+    else if (!name) setName(defaultName || 'Pasted rows');
   }
   async function onFile(f: File | undefined) {
     if (!f) return;
@@ -89,8 +106,9 @@ function ImportForm({ onSave, onCancel, defaultName = '' }: { onSave: (s: Playli
   return (
     <div className="import">
       <p className="muted small">
-        In Music on a Mac, select the playlist, then <strong>File → Library → Export Playlist…</strong> and save as <em>Plain Text</em>.
-        Or select songs in the playlist, press <kbd>⌘C</kbd>, and paste them below.
+        In Music on a Mac, select the playlist, choose <strong>View → Sort By → Playlist Order</strong>, then <strong>File → Library → Export Playlist…</strong> and save as <em>Plain Text</em>.
+        Or paste what <strong>Anisong Export Playlist</strong> copied on your iPhone (duplicate checks only: its order isn't playlist order),
+        or select songs in the playlist, press <kbd>⌘C</kbd>, and paste them below.
       </p>
       <div className="row">
         <label>Export file <input type="file" accept=".txt,text/plain,text/tab-separated-values" onChange={(e) => onFile(e.target.files?.[0])} /></label>
@@ -99,7 +117,7 @@ function ImportForm({ onSave, onCancel, defaultName = '' }: { onSave: (s: Playli
         className="paste"
         value={text}
         onChange={(e) => onText(e.target.value)}
-        placeholder="…or paste rows here (⌘V)"
+        placeholder="…or paste here (⌘V)"
         rows={4}
         spellCheck={false}
         aria-label="Paste playlist rows"
@@ -110,7 +128,7 @@ function ImportForm({ onSave, onCancel, defaultName = '' }: { onSave: (s: Playli
         <label>Name <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Playlist name" size={18} /></label>
         <button
           disabled={!parsed?.rows.length}
-          onClick={() => parsed && onSave({ name: name.trim() || 'Playlist', rows: parsed.rows, importedAt: Date.now(), format: parsed.format === 'pasted' ? 'pasted' : 'export', warnings: parsed.warnings })}
+          onClick={() => parsed && onSave({ ...snapshotFromParse(parsed, name), name: name.trim() || parsed.playlistName || 'Playlist' })}
         >
           Save {parsed?.rows.length ? `${parsed.rows.length} songs` : 'snapshot'}
         </button>
@@ -128,7 +146,7 @@ function ParsePreview({ parsed }: { parsed: ParseResult }) {
     <div className="preview">
       <div className="row">
         <strong>{rows.length} songs</strong>
-        <span className="muted">{parsed.format === 'export' ? 'Music.app export' : parsed.format === 'pasted' ? 'pasted rows' : ''}{parsed.encoding !== 'text' && ` · ${parsed.encoding}`}</span>
+        <span className="muted">{parsed.format === 'export' ? 'Music.app export' : parsed.format === 'pasted' ? 'pasted rows' : parsed.format === 'shortcut' ? 'Anisong Export Playlist' : ''}{parsed.encoding !== 'text' && ` · ${parsed.encoding}`}</span>
       </div>
       {parsed.guessed && (
         <p className="warn-text small">Columns guessed: {describeMapping(parsed.mapping)}. Check that the rows below look right.</p>

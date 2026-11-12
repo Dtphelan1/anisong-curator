@@ -2,7 +2,7 @@ import Dexie, { type EntityTable } from 'dexie';
 import type { Show, ThemeLookup } from '../types';
 import type { ThemeCache } from './themes';
 import type { MatchResult } from './matching';
-import type { PlaylistRow } from './playlistImport';
+import type { ParseResult, PlaylistRow, SortDetection } from './playlistImport';
 import type { AddedRecord } from './dedupe';
 
 export type DecisionValue = 'keep' | 'skip' | 'later';
@@ -14,14 +14,45 @@ export interface Decision {
   decidedAt: number;
 }
 
-/** An imported copy of the playlist (Music.app export or pasted rows), in playlist order. */
+/** An imported copy of the playlist: Music.app export, pasted rows, or the Anisong Export Playlist shortcut's text. */
 export interface PlaylistSnapshot {
   name: string;
   rows: PlaylistRow[];
   importedAt: number;
-  format: 'export' | 'pasted';
+  /** export: Mac export file · pasted: ⌘C rows · shortcut: Anisong Export Playlist (iPhone). */
+  format: 'export' | 'pasted' | 'shortcut';
   warnings: string[];
+  /**
+   * Rows are in playlist order, so the tail means "most recently added".
+   * False for shortcut text (order unverified) and for exports sorted by a
+   * column. Snapshots saved before this field existed read as true.
+   */
+  ordered: boolean;
+  /** False when the artists can't be trusted (the shortcut's lists didn't line up). Absent = true. */
+  artistsKnown?: boolean;
+  /** Why it's unordered, when an export was sorted by a column. */
+  sortedBy?: SortDetection | null;
 }
+
+/** Build a snapshot from a parse. The shortcut text names its playlist; otherwise `fallbackName`. */
+export function snapshotFromParse(parsed: ParseResult, fallbackName: string, now = Date.now()): PlaylistSnapshot {
+  return {
+    name: parsed.playlistName?.trim() || fallbackName.trim() || 'Playlist',
+    rows: parsed.rows,
+    importedAt: now,
+    format: parsed.format === 'shortcut' ? 'shortcut' : parsed.format === 'pasted' ? 'pasted' : 'export',
+    warnings: parsed.warnings,
+    ordered: parsed.ordered,
+    artistsKnown: parsed.artistsKnown,
+    sortedBy: parsed.sortedBy ?? null,
+  };
+}
+
+export const SNAPSHOT_SOURCE: Record<PlaylistSnapshot['format'], string> = {
+  export: 'Mac export',
+  shortcut: 'iPhone shortcut',
+  pasted: 'pasted rows',
+};
 
 /**
  * IndexedDB via Dexie. Everything here is a rebuildable cache, except
@@ -86,7 +117,9 @@ export async function loadShows(database: CuratorDB = db): Promise<{ shows: Show
 
 /** The most recently imported snapshot (the app works with one playlist). */
 export async function loadLatestSnapshot(database: CuratorDB = db): Promise<PlaylistSnapshot | null> {
-  return (await database.playlistSnapshots.orderBy('importedAt').last()) ?? null;
+  const s = await database.playlistSnapshots.orderBy('importedAt').last();
+  // Pre-`ordered` snapshots were all Music.app exports or pasted rows.
+  return s ? { ...s, ordered: s.ordered ?? true } : null;
 }
 
 export async function saveSnapshot(s: PlaylistSnapshot, database: CuratorDB = db): Promise<void> {
