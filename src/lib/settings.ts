@@ -17,6 +17,8 @@ export interface Settings {
   country: string;
   preferTvSize: boolean;
   autoplay: boolean;
+  /** The running playlist kept songs go into (as named in Apple Music). */
+  playlistName: string;
 }
 
 const KEY = 'anisong-curator.settings.v1';
@@ -31,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
   country: 'us',
   preferTvSize: false,
   autoplay: true,
+  playlistName: '🔥 AniSong MegaMix',
 };
 
 function read(): Settings {

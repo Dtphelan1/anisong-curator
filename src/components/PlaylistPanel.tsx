@@ -17,6 +17,7 @@ interface Props {
   boundId: number | null;
   onBound: (id: number) => void;
   onSuggest: (id: number | null) => void;
+  playlistName?: string;
 }
 
 const mmss = (ms: number | null) => (ms ? `${Math.floor(ms / 60000)}:${String(Math.round(ms / 1000) % 60).padStart(2, '0')}` : '');
@@ -26,7 +27,7 @@ const mmss = (ms: number | null) => (ms ? `${Math.floor(ms / 60000)}:${String(Ma
  * snapshot, and suggest the "last show already in the playlist" from its
  * tail (SPEC §9.5).
  */
-export function PlaylistPanel({ snapshot, onSnapshot, shows, ordered, direction, boundId, onBound, onSuggest }: Props) {
+export function PlaylistPanel({ snapshot, onSnapshot, shows, ordered, direction, boundId, onBound, onSuggest, playlistName }: Props) {
   const [importing, setImporting] = useState(false);
   const showForm = importing || !snapshot;
 
@@ -54,7 +55,7 @@ export function PlaylistPanel({ snapshot, onSnapshot, shows, ordered, direction,
           <button className="link" onClick={remove}>Remove</button>
         </div>
       )}
-      {showForm && <ImportForm onSave={save} onCancel={snapshot ? () => setImporting(false) : undefined} />}
+      {showForm && <ImportForm defaultName={playlistName} onSave={save} onCancel={snapshot ? () => setImporting(false) : undefined} />}
       {snapshot && !importing && (
         <TailView snapshot={snapshot} shows={shows} ordered={ordered} direction={direction} boundId={boundId} onBound={onBound} onSuggest={onSuggest} />
       )}
@@ -62,16 +63,16 @@ export function PlaylistPanel({ snapshot, onSnapshot, shows, ordered, direction,
   );
 }
 
-function ImportForm({ onSave, onCancel }: { onSave: (s: PlaylistSnapshot) => void; onCancel?: () => void }) {
+function ImportForm({ onSave, onCancel, defaultName = '' }: { onSave: (s: PlaylistSnapshot) => void; onCancel?: () => void; defaultName?: string }) {
   const [text, setText] = useState('');
   const [parsed, setParsed] = useState<ParseResult | null>(null);
-  const [name, setName] = useState('');
+  const [name, setName] = useState(defaultName);
   const [fileErr, setFileErr] = useState<string | null>(null);
 
   function onText(v: string) {
     setText(v);
     setParsed(v.trim() ? parsePlaylist(v) : null);
-    if (!name || name === 'Pasted rows') setName('Pasted rows');
+    if (!name) setName(defaultName || 'Pasted rows');
   }
   async function onFile(f: File | undefined) {
     if (!f) return;

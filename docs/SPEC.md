@@ -379,13 +379,18 @@ Kept for later. It replaces only `MusicProvider`:
 
 Network probes weren't possible while this spec was written. In priority order:
 
-1. **Shortcuts: catalog ID/URL → added to a playlist.** Can "Add to Playlist"
+1. ✅ **Resolved 2026-11-12 (iOS):** the `Anisong Add Kept` shortcut created a
+   new playlist from `music.apple.com/us/song/<id>` links, so links do turn into
+   music items. Appending to the existing playlist hasn't been confirmed yet.
+   Original question: **Shortcuts: catalog ID/URL → added to a playlist.** Can "Add to Playlist"
    (or Add to Library, then Add to Playlist) accept a `music.apple.com` song URL
    for a song that isn't in your library? Test on both macOS and iOS. If this
    fails, commit falls back to the manual link checklist (§6.2).
-2. **Shortcuts: playlist items in playlist order**, and which properties
+2. *Superseded:* playlist reads now use the Music.app export (§9.6, M6).
+   Original question: **Shortcuts: playlist items in playlist order**, and which properties
    (title, artist, album, duration) can be read.
-3. **x-callback round trip**: `x-success` with `result` back to
+3. *Not needed:* `Add Kept` takes the list from the clipboard or Share Sheet.
+   Original question: **x-callback round trip**: `x-success` with `result` back to
    `localhost:5173/bridge`, in your browser of choice.
 4. ~~**iTunes Search** from the browser: CORS, `trackId` = Apple Music ID.~~
    Resolved (§9.2). Still open: the real throttle limit.
@@ -402,7 +407,7 @@ Network probes weren't possible while this spec was written. In priority order:
 | M1 ✅ | AniList load + ordering UI + lower-bound picker | §8 rules |
 | M2 ✅ | Theme resolution + cache | Coverage on *your* list (log hit rate) |
 | M3 ✅ | iTunes matcher + review UI with previews + URL paste | Match precision within the 20/min budget |
-| M4 | Shortcuts bridge: staging playlist, verify via Read Tail | End-to-end Mode 1 |
+| M4 ✅ | Kept-list export (links / text / JSON) + `Anisong Add Kept` shortcut (staging verified on iOS) | End-to-end Mode 1 |
 | M5 | Decisions + CommitLog + cursor (§7), dedupe | Periodic use without re-picking |
 | M6 ✅ | Playlist import (export / paste) + V2 tail inference + snapshot dedupe badge | First-run bootstrap / drift detection |
 

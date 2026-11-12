@@ -14,7 +14,8 @@ interface Props {
   autoplay: boolean;
   /** Imported playlist snapshot, for the "already in playlist" check (§9.4). */
   playlist?: PlaylistIndex | null;
-  onSettings: (patch: { country?: string; preferTvSize?: boolean; autoplay?: boolean }) => void;
+  playlistName: string;
+  onSettings: (patch: { country?: string; preferTvSize?: boolean; autoplay?: boolean; playlistName?: string }) => void;
   onBack: () => void;
 }
 
@@ -27,7 +28,7 @@ const CONF_LABEL = { high: 'confident', check: 'check me', low: 'unlikely', none
 const mmss = (ms: number | null) => (ms ? `${Math.floor(ms / 60000)}:${String(Math.round(ms / 1000) % 60).padStart(2, '0')}` : '');
 const isTyping = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
 
-export function Review({ items, country, prefs, autoplay, playlist = null, onSettings, onBack }: Props) {
+export function Review({ items, country, prefs, autoplay, playlist = null, playlistName, onSettings, onBack }: Props) {
   const [index, setIndex] = useState(0);
   const [onlyUndecided, setOnlyUndecided] = useState(false);
   const [hideInPlaylist, setHideInPlaylist] = useState(false);
@@ -184,11 +185,12 @@ export function Review({ items, country, prefs, autoplay, playlist = null, onSet
           </label>
           <label><input type="checkbox" checked={prefs.preferTvSize} onChange={(e) => onSettings({ preferTvSize: e.target.checked })} /> Prefer TV size</label>
           <label><input type="checkbox" checked={autoplay} onChange={(e) => onSettings({ autoplay: e.target.checked })} /> Autoplay previews</label>
+          <label>Playlist <input value={playlistName} onChange={(e) => onSettings({ playlistName: e.target.value })} size={18} title="Name of your running Apple Music playlist" /></label>
         </div>
       </section>
 
       <Queue items={items} index={index} onPick={setIndex} matches={matches} status={status} decisions={decisions} inPlaylist={inPlaylist} />
-      <KeptSummary items={items} matches={matches} decisions={decisions} country={country} />
+      <KeptSummary items={items} matches={matches} decisions={decisions} country={country} playlistName={playlistName} />
     </>
   );
 }
@@ -343,8 +345,8 @@ const EXPORT_FORMATS: { value: ExportFormat; label: string; hint: string }[] = [
   { value: 'json', label: 'JSON', hint: '{country, ids}: for the spike Add Tracks shortcut' },
 ];
 
-function KeptSummary({ items, matches, decisions, country }: {
-  items: ReviewItem[]; matches: Map<string, MatchResult>; decisions: Map<string, { decision: DecisionValue; trackId: number | null }>; country: string;
+function KeptSummary({ items, matches, decisions, country, playlistName }: {
+  items: ReviewItem[]; matches: Map<string, MatchResult>; decisions: Map<string, { decision: DecisionValue; trackId: number | null }>; country: string; playlistName: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [format, setFormatState] = useState<ExportFormat>(() => {
@@ -378,7 +380,7 @@ function KeptSummary({ items, matches, decisions, country }: {
       <h2>Kept ({kept.length})</h2>
       <p className="muted">
         In playlist order (oldest show first). Copy the list, then run the <strong>Anisong Add Kept</strong> shortcut
-        (see <code>shortcuts/README.md</code>); it adds the songs in this order.
+        to add them to <strong>{playlistName}</strong> (or a new staging playlist) in this order.
       </p>
       <div className="row">
         <div className="segmented" role="radiogroup" aria-label="Export format">

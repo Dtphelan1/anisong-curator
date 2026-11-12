@@ -111,6 +111,7 @@ export function App() {
 
       {step === 'pick' && (
         <PlaylistPanel
+          playlistName={settings.playlistName}
           snapshot={snapshot}
           onSnapshot={setSnapshot}
           shows={shows}
@@ -156,6 +157,7 @@ export function App() {
           country={settings.country}
           prefs={prefs}
           autoplay={settings.autoplay}
+          playlistName={settings.playlistName}
           playlist={playlistIndex}
           onSettings={update}
           onBack={() => setStep('themes')}
