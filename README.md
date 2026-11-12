@@ -21,7 +21,8 @@ Status: M1–M4 and M6 done; duplicate prevention in progress.
   show added" as the quick start.
 - **M2:** OP/ED lookup via AnimeThemes GraphQL, with a Jikan fallback.
 - **M3:** Apple Music matching via iTunes Search, plus a keyboard-driven review
-  with previews: `K` keep, `S` skip, `L` later, `/` search or paste a link.
+  with previews: `1` keep (or hold back), `⇧1` add anyway, `2` skip, `3` later,
+  `/` search or paste a link.
 - **M4:** the Kept list exports in order; the `Anisong Add Kept` shortcut adds it
   to your playlist (see the shortcuts setup guide).
 - **M6:** import the playlist (Music.app export or pasted rows); the app maps

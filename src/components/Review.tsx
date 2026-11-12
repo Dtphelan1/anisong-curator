@@ -122,7 +122,7 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
     await decide(item.key, d, d === 'keep' ? match?.chosenId ?? null : null, addAnyway);
     nextUndecided();
   }, [item, match, decide, nextUndecided]);
-  /** A: keep a song you already have and export it anyway; on an already-kept song, toggle the override in place. */
+  /** Shift+1: keep a song you already have and export it anyway; on an already-kept song, toggle the override in place. */
   const addAnywayKey = useCallback(async () => {
     if (!item || !have || have.sameTrack && have.source === 'added') return;
     if (decision?.decision === 'keep') await setAddAnyway([item.key], !decision.addAnyway);
@@ -153,12 +153,12 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
     const onKey = (e: KeyboardEvent) => {
       if (isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
       const k = e.key.toLowerCase();
-      if (k === 'k') doDecide('keep');
-      else if (k === 's') doDecide('skip');
-      else if (k === 'l') doDecide('later');
-      else if (k === 'a') addAnywayKey();
-      else if (k === 'arrowright' || k === 'j') step(1);
-      else if (k === 'arrowleft' || k === 'h') step(-1);
+      // Decisions are 1/2/3 by position (e.code, so Shift+1 works on any layout):
+      // 1 keep / hold back, Shift+1 add anyway, 2 skip, 3 later.
+      const digit = /^(?:Digit|Numpad)([123])$/.exec(e.code)?.[1];
+      if (digit === '1') { if (e.shiftKey) addAnywayKey(); else doDecide('keep'); }
+      else if (digit === '2' && !e.shiftKey) doDecide('skip');
+      else if (digit === '3' && !e.shiftKey) doDecide('later');
       else if (k === 'c') setShowCandidates((v) => !v);
       else if (k === '/') { e.preventDefault(); searchBox.current?.focus(); }
       else if (k === ' ') {
@@ -169,7 +169,7 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [doDecide, step, addAnywayKey]);
+  }, [doDecide, addAnywayKey]);
 
   const counts = useMemo(() => {
     let keep = 0, skip = 0, later = 0;
@@ -178,6 +178,13 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
     return { keep, skip, later, pending };
   }, [decisions, items, status]);
 
+  const allDecided = items.length > 0 && counts.keep + counts.skip + counts.later === items.length;
+  /** Done reviewing: show the Kept tab (and bring it into view on narrow screens). */
+  const goExport = () => {
+    setTab('kept');
+    if (window.matchMedia('(max-width: 899px)').matches) requestAnimationFrame(() => document.querySelector('.review-side')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  };
+
   if (!item) return <section className="card"><p>No songs to review.</p><button className="secondary" onClick={onBack}>← Back</button></section>;
 
   return (
@@ -185,11 +192,17 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
       <section className="card review review-main" ref={cardRef} aria-label="Song under review">
         <div className="row">
           <button className="secondary" onClick={onBack}>← Songs</button>
-          <strong>{index + 1}/{items.length}</strong>
           <span className="muted">kept {counts.keep} · skipped {counts.skip} · later {counts.later}</span>
           {counts.pending > 0 && <span className="muted">· matching {counts.pending} more (~{Math.ceil(counts.pending * 1.7 * 3 / 60)} min)</span>}
           <span className="spacer" />
+          <button onClick={goExport} title="Go to the kept songs: sync, copy and add them to your playlist">Done · Export {counts.keep} →</button>
         </div>
+        {allDecided && tab !== 'kept' && (
+          <div className="done-banner" role="status">
+            <strong>All {items.length} songs decided.</strong> {counts.keep} kept.
+            <button onClick={goExport}>Export {counts.keep} →</button>
+          </div>
+        )}
 
         <div className="song-head">
           <div className="muted">{displayTitle(item.show)} · <strong>{item.theme.slug}</strong>{item.theme.episodes && ` · eps ${item.theme.episodes}`}</div>
@@ -201,25 +214,22 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
         </div>
 
         {have && chosen && <HaveBanner hit={have} addAnyway={decision?.decision === 'keep' && !!decision.addAnyway} />}
-        <MatchView item={item} match={match} chosen={chosen} status={status.get(item.key)} error={errors.get(item.key)} audioRef={audio} inPlaylist={have} />
+        <MatchView item={item} match={match} chosen={chosen} status={status.get(item.key)} error={errors.get(item.key)} audioRef={audio} inPlaylist={have} onRetry={() => rematch(item)} />
 
         <div className="row actions">
           <button onClick={() => doDecide('keep')} disabled={!chosen} className={`${have ? 'have-btn' : ''} ${decision?.decision === 'keep' && !decision.addAnyway ? 'on' : ''}`}
-            title={have ? "Keep it, but hold it back from the export: it's already in your playlist" : undefined}>
-            {have ? 'Keep (held back)' : 'Keep'} <kbd>K</kbd>
+            title={have ? "You already have it: hold it back from the export" : 'Keep it for the export'}>
+            {have ? 'Hold back' : 'Keep'} <kbd>1</kbd>
           </button>
+          <button className={`secondary ${decision?.decision === 'skip' ? 'on' : ''}`} onClick={() => doDecide('skip')}>Skip <kbd>2</kbd></button>
+          <button className={`secondary ${decision?.decision === 'later' ? 'on' : ''}`} onClick={() => doDecide('later')}>Later <kbd>3</kbd></button>
           {have && !(have.sameTrack && have.source === 'added') && (
             <button className={`secondary have-btn ${decision?.decision === 'keep' && decision.addAnyway ? 'on' : ''}`} onClick={addAnywayKey} disabled={!chosen}
-              title="Keep and export it even though it looks like it's already in your playlist">
-              Keep &amp; add anyway <kbd>A</kbd>
+              title="Export it even though it looks like it's already in your playlist">
+              Add anyway <kbd>⇧1</kbd>
             </button>
           )}
-          <button className={`secondary ${decision?.decision === 'skip' ? 'on' : ''}`} onClick={() => doDecide('skip')}>Skip <kbd>S</kbd></button>
-          <button className={`secondary ${decision?.decision === 'later' ? 'on' : ''}`} onClick={() => doDecide('later')}>Later <kbd>L</kbd></button>
           {decision && <button className="link" onClick={() => decide(item.key, null, null)}>undo</button>}
-          <span className="spacer" />
-          <button className="secondary" onClick={() => step(-1)}>← <kbd>←</kbd></button>
-          <button className="secondary" onClick={() => step(1)}><kbd>→</kbd> →</button>
         </div>
 
         {match && match.candidates.length > 1 && (
@@ -233,7 +243,7 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
         {match && match.method !== 'manual' && <button className="link" onClick={() => rematch(item)}>re-run search</button>}
 
         <p className="muted small">
-          <kbd>K</kbd> keep · <kbd>A</kbd> keep &amp; add anyway (songs you already have) · <kbd>S</kbd> skip · <kbd>L</kbd> later · <kbd>←</kbd>/<kbd>→</kbd> move · <kbd>space</kbd> play/pause · <kbd>C</kbd> candidates · <kbd>/</kbd> search
+          <kbd>1</kbd> keep (hold back, for songs you already have) · <kbd>⇧1</kbd> add anyway · <kbd>2</kbd> skip · <kbd>3</kbd> later · <kbd>space</kbd> play/pause · <kbd>C</kbd> candidates · <kbd>/</kbd> search
         </p>
         <div className="row small">
           <label>Store
@@ -248,6 +258,7 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
       </section>
 
       <aside className="review-side" aria-label="Queue, kept and later songs">
+        <QueueNav order={order} currentKey={currentKey} total={items.length} onStep={step} />
         <div className="tabs" role="tablist">
           <button role="tab" aria-selected={tab === 'queue'} className={tab === 'queue' ? 'on' : ''} onClick={() => setTab('queue')}>Queue <span className="muted">{items.length}</span></button>
           <button role="tab" aria-selected={tab === 'kept'} className={tab === 'kept' ? 'on' : ''} onClick={() => setTab('kept')}>Kept <span className="muted">{counts.keep}</span></button>
@@ -269,6 +280,34 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
   );
 }
 
+/**
+ * Previous / next through the queue in its current view order, with the
+ * position. Owns the ←/→ keys, so moving
+ * through the queue lives with the queue rather than next to the player.
+ */
+function QueueNav({ order, currentKey, total, onStep }: { order: string[]; currentKey: string | null; total: number; onStep: (dir: 1 | -1) => void }) {
+  const pos = currentKey ? order.indexOf(currentKey) : -1;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isTyping(e) || e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+      if (e.key === 'ArrowRight') { e.preventDefault(); onStep(1); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); onStep(-1); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onStep]);
+  return (
+    <div className="queue-nav" role="navigation" aria-label="Move through the queue">
+      <button className="secondary" onClick={() => onStep(-1)} disabled={pos <= 0} aria-label="Previous song"><kbd>←</kbd> Prev</button>
+      <span className="queue-pos">
+        <strong>{pos >= 0 ? pos + 1 : '–'}</strong> of {order.length}
+        {order.length !== total && <span className="muted"> in view · {total} total</span>}
+      </span>
+      <button className="secondary" onClick={() => onStep(1)} disabled={pos < 0 || pos >= order.length - 1} aria-label="Next song">Next <kbd>→</kbd></button>
+    </div>
+  );
+}
+
 const VIEW_KEY = 'anisong-curator.queueView';
 function loadView(): ViewOptions {
   try { return { ...DEFAULT_VIEW, ...(JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}') as Partial<ViewOptions>) }; } catch { return DEFAULT_VIEW; }
@@ -279,7 +318,8 @@ function saveView(v: ViewOptions) {
 
 function matchState(m: MatchResult | undefined, st: string | undefined): MatchState {
   if (st !== 'done' && st !== 'error') return 'pending';
-  if (!m || st === 'error') return 'no-match';
+  if (st === 'error') return 'error';
+  if (!m) return 'no-match';
   if (m.userPicked) return 'your-pick';
   const c = confidenceOf(m.score);
   return c === 'high' ? 'confident' : c === 'check' ? 'check' : c === 'low' ? 'unlikely' : 'no-match';
@@ -321,25 +361,56 @@ function HaveBanner({ hit, addAnyway }: { hit: DupHit; addAnyway: boolean }) {
         {addAnyway
           ? 'You chose to add it anyway: it will be exported.'
           : exact
-            ? 'Keeping it holds it back from the export.'
-            : <>Keeping it holds it back from the export. Press <kbd>A</kbd> to keep it and add it anyway.</>}
+            ? 'Press 1 to hold it back from the export.'
+            : <>Press <kbd>1</kbd> to hold it back from the export, or <kbd>⇧1</kbd> to add it anyway.</>}
       </div>
     </div>
   );
 }
 
-function MatchView({ item, match, chosen, status, error, audioRef, inPlaylist }: {
+/** YouTube search for a song with no catalog match: title, artists, anime and OP/ED slug. Opens a separate window. */
+function YouTubeSearch({ item }: { item: ReviewItem }) {
+  const q = [item.theme.songTitle, item.theme.artists.join(' '), displayTitle(item.show), item.theme.slug].filter(Boolean).join(' ');
+  const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`;
+  return (
+    <a className="button secondary yt" href={url} target="_blank" rel="noopener noreferrer"
+      onClick={(e) => {
+        // A separate, reused window; if the popup is blocked, the link opens a normal tab instead.
+        const w = window.open(url, 'anisong-youtube', 'popup,width=1100,height=800');
+        if (w) { w.opener = null; e.preventDefault(); }
+      }}
+      title={`Search YouTube for: ${q}`}>
+      Search YouTube ↗
+    </a>
+  );
+}
+
+function MatchView({ item, match, chosen, status, error, audioRef, inPlaylist, onRetry }: {
   item: ReviewItem; match?: MatchResult; chosen?: Candidate; status?: string; error?: string; audioRef: React.RefObject<HTMLAudioElement>; inPlaylist?: DupHit;
+  onRetry: () => void;
 }) {
+  // Errors first: a failed search stores no match, so checking `!match` first
+  // would show "Queued for matching…" forever.
+  if (status === 'error') {
+    return (
+      <div className="match none frame-none">
+        <div>
+          <span className="bad">Search failed{error ? `: ${error}` : ''}.</span>{' '}
+          <button className="secondary" onClick={onRetry}>Try again</button>
+          <YouTubeSearch item={item} />
+        </div>
+        <audio ref={audioRef} />
+      </div>
+    );
+  }
   if (!match || status === 'matching' || status === 'queued') {
     return <div className="match pending">{status === 'matching' ? 'Searching Apple Music…' : 'Queued for matching…'}<audio ref={audioRef} /></div>;
   }
-  if (status === 'error') return <div className="match none"><span className="bad">Search failed: {error}</span><audio ref={audioRef} /></div>;
-  if (!chosen) return <div className="match none">No match in this store. Search or paste an Apple Music link below.<audio ref={audioRef} /></div>;
+  if (!chosen) return <div className="match none frame-none"><div>No match in this store. Search or paste an Apple Music link below.<YouTubeSearch item={item} /></div><audio ref={audioRef} /></div>;
   const t = chosen.track;
   const conf = match.userPicked ? 'high' : confidenceOf(match.score);
   return (
-    <div className={`match${inPlaylist ? ` have-frame have-${inPlaylist.tier}` : ''}`}>
+    <div className={`match ${inPlaylist ? `have-frame have-${inPlaylist.tier}` : `frame-${match.userPicked ? 'high' : confidenceOf(match.score)}`}`}>
       {t.artworkUrl100
         ? <img src={t.artworkUrl100.replace('100x100bb', '200x200bb')} alt="" width={88} height={88} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
         : <div className="art" />}
@@ -499,8 +570,8 @@ function Queue({ items, entries, order, currentKey, onPick, matches, decisions, 
     for (const e of entries) { const p = m.get(e.anime) ?? { done: 0, total: 0 }; p.total++; if (e.decision !== 'undecided') p.done++; m.set(e.anime, p); }
     return m;
   }, [entries]);
-  const STATUS_TEXT: Record<MatchState, string> = { confident: 'confident', 'your-pick': 'your pick', check: 'check me', unlikely: 'unlikely', 'no-match': 'no match', pending: '' };
-  const STATUS_CLASS: Record<MatchState, string> = { confident: 'conf-high', 'your-pick': 'conf-high', check: 'conf-check', unlikely: 'conf-low', 'no-match': 'conf-none', pending: '' };
+  const STATUS_TEXT: Record<MatchState, string> = { confident: 'confident', 'your-pick': 'your pick', check: 'check me', unlikely: 'unlikely', 'no-match': 'no match', error: 'search failed', pending: '' };
+  const STATUS_CLASS: Record<MatchState, string> = { confident: 'conf-high', 'your-pick': 'conf-high', check: 'conf-check', unlikely: 'conf-low', 'no-match': 'conf-none', error: 'conf-none', pending: '' };
 
   return (
     <section className="card queue-card">
@@ -544,7 +615,7 @@ function Queue({ items, entries, order, currentKey, onPick, matches, decisions, 
                   <tr key={`h:${e.anime}`} className="group-head"><td colSpan={4}>{e.anime} <span className="muted">· {p?.done}/{p?.total} decided</span></td></tr>
                 ) : null,
                 <tr key={key} ref={(el) => { if (el) rows.current.set(key, el); else rows.current.delete(key); }}
-                  className={`${key === currentKey ? 'current' : ''} ${hit ? 'have-row' : ''}`} onClick={() => onPick(key)} aria-current={key === currentKey ? 'true' : undefined}>
+                  className={key === currentKey ? 'current' : ''} onClick={() => onPick(key)} aria-current={key === currentKey ? 'true' : undefined}>
                   <td className={`nowrap marker ${mk.cls}`} title={mk.title}>{mk.glyph}</td>
                   <td className="nowrap muted">{it.theme.slug}</td>
                   <td>{it.theme.songTitle}{!view.groupByAnime && <span className="muted"> · {e.anime}</span>}<InPlaylistBadge hit={hit} /></td>

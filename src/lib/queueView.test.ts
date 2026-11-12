@@ -15,6 +15,7 @@ const entries: QueueEntry[] = [
   e('edge', 4, { anime: 'Demon Slayer', title: 'from the edge', match: 'pending' }),
   e('aizo', 5, { anime: 'Jujutsu Kaisen', title: 'AIZO', match: 'unlikely', decision: 'later' }),
 ];
+const failed = e('serenade', 6, { anime: 'Oshi no Ko', title: 'Serenade', match: 'error' });
 const view = (p: Partial<ViewOptions>) => computeOrder(entries, { ...DEFAULT_VIEW, ...p });
 
 describe('computeOrder', () => {
@@ -40,6 +41,12 @@ describe('computeOrder', () => {
     // Title order: again(FMA) aizo(JJK) edge(DS) golden(FMA) gurenge(DS) hologram(FMA) → grouped by first appearance.
     expect(view({ groupByAnime: true, sort: 'title' })).toEqual(['again', 'golden', 'hologram', 'aizo', 'edge', 'gurenge']);
   });
+  it('a failed search sorts after no match and shows under the No match filter', () => {
+    const all = [...entries, failed];
+    expect(computeOrder(all, { ...DEFAULT_VIEW, sort: 'status', desc: true }).slice(-3)).toEqual(['gurenge', 'serenade', 'edge']);
+    expect(computeOrder(all, { ...DEFAULT_VIEW, filter: 'no-match' })).toEqual(['gurenge', 'serenade']);
+  });
+
   it('counts per filter', () => {
     expect(counts(entries)).toMatchObject({ all: 6, undecided: 4, check: 2, 'no-match': 1, have: 1, keep: 1, later: 1, skip: 0 });
   });

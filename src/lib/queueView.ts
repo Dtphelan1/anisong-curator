@@ -10,7 +10,7 @@
  * the UI when a refresh would change anything.
  */
 
-export type MatchState = 'confident' | 'your-pick' | 'check' | 'unlikely' | 'no-match' | 'pending';
+export type MatchState = 'confident' | 'your-pick' | 'check' | 'unlikely' | 'no-match' | 'error' | 'pending';
 export type DecisionState = 'undecided' | 'keep' | 'skip' | 'later';
 
 /** What the view needs to know about one song. */
@@ -39,8 +39,8 @@ export interface ViewOptions {
 
 export const DEFAULT_VIEW: ViewOptions = { sort: 'original', desc: false, filter: 'all', groupByAnime: false };
 
-/** Status order, best first: confident → your pick → check me → unlikely → no match → still matching. */
-const MATCH_RANK: Record<MatchState, number> = { confident: 0, 'your-pick': 1, check: 2, unlikely: 3, 'no-match': 4, pending: 5 };
+/** Status order, best first: confident → your pick → check me → unlikely → no match → search failed → still matching. */
+const MATCH_RANK: Record<MatchState, number> = { confident: 0, 'your-pick': 1, check: 2, unlikely: 3, 'no-match': 4, error: 5, pending: 6 };
 const DECISION_RANK: Record<DecisionState, number> = { undecided: 0, later: 1, keep: 2, skip: 3 };
 
 export const SORT_LABEL: Record<SortField, string> = {
@@ -51,7 +51,7 @@ export const FILTERS: { id: FilterId; label: string; test: (e: QueueEntry) => bo
   { id: 'all', label: 'All', test: () => true },
   { id: 'undecided', label: 'Undecided', test: (e) => e.decision === 'undecided' },
   { id: 'check', label: 'Check me', test: (e) => e.match === 'check' || e.match === 'unlikely' },
-  { id: 'no-match', label: 'No match', test: (e) => e.match === 'no-match' },
+  { id: 'no-match', label: 'No match', test: (e) => e.match === 'no-match' || e.match === 'error' },
   { id: 'have', label: 'Already have', test: (e) => e.have },
   { id: 'keep', label: 'Kept', test: (e) => e.decision === 'keep' },
   { id: 'later', label: 'Later', test: (e) => e.decision === 'later' },

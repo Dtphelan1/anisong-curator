@@ -36,6 +36,24 @@ batches by priority. Tick them off as they ship; add new findings at the end.
 - [x] **Phone:** no horizontal scroll; a failed album-art image no longer
   leaves an empty box.
 
+## After review of batch A ✅
+- [x] **A clear exit:** **Done · Export N →** in the review header, plus an
+  "all songs decided" prompt, opening the Kept tab.
+- [x] **Positional keys:** `1` keep / hold back, `⇧1` add anyway, `2` skip,
+  `3` later. This frees the button wording ("Hold back" for songs you already
+  have).
+- [x] **The song box takes its status badge's colour** in every case, not only
+  for songs you already have.
+- [x] **No violet stripe on queue rows:** the badge is enough.
+- [x] **Search YouTube** (separate window) when there's no match: title,
+  artists, anime, OP/ED slug.
+- [x] **Prev / Next moved above the queue,** with the position ("3 of 12",
+  plus the total when filtered). It owns the ←/→ keys, so the action row holds
+  decisions only.
+- [x] **Bug: a failed search showed "Queued for matching…" forever.** The card
+  now shows "Search failed" with **Try again** and **Search YouTube**, and the
+  queue labels it "search failed" (listed under No match).
+
 ## Batch B: faster, safer decisions
 - [ ] **Undo toast** after each decision ("Kept *Hologram* (held back) ·
   Undo"), plus `U` to undo the last few.

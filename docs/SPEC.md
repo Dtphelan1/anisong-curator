@@ -137,8 +137,14 @@ is the most exact duplicate source (§9.4).
    ~20 req/min limit. Run it in the background with a progress bar, so the
    review can start on matched items while the rest finish.
 6. **Review.** A card per theme: show, OP1/ED2, matched track, confidence badge,
-   and a `<audio>` player on `previewUrl`. Keys: `K` keep, `S` skip,
-   `L` later, `←/→`, `space`, `C` candidates, `/` manual search. Manual search
+   and a `<audio>` player on `previewUrl`. The card's frame takes the colour
+   of the match's status badge (confident / check me / unlikely / no match;
+   violet when you already have the song). Keys: decisions are by position:
+   `1` keep (labelled **Hold back** for songs you already have), `⇧1` add
+   anyway, `2` skip, `3` later. Also `←/→`, `space`, `C` candidates, `/`
+   manual search. With no match, a **Search YouTube** button opens a separate
+   window searching for the title, artists, anime and OP/ED slug. **Done ·
+   Export** (and an "all decided" prompt) opens the Kept tab. Manual search
    also accepts a pasted `music.apple.com/.../song/...` or `?i=` URL, which is
    parsed to a `trackId` and resolved with Lookup. This is an exact escape hatch
    for anything the matcher misses.
@@ -161,7 +167,10 @@ is the most exact duplicate source (§9.4).
        row in place instead of moving it, and an "Order out of date · refresh"
        pill offers the re-sort.
      - ←/→ and "next undecided" follow the visible order. The song you're on
-       stays listed even after it leaves the filter.
+       stays listed even after it leaves the filter. Prev / Next and the
+       position ("3 of 12") sit above the queue, which owns the ←/→ keys.
+     - A failed search is its own state ("search failed", grouped with No
+       match); the card offers **Try again** and **Search YouTube**.
 7. **Kept: dedupe and export** (§9.4).
    1. Optionally refresh the playlist snapshot: run `Anisong Export Playlist`
       and paste its text into **Sync playlist** (or import a Mac export).
@@ -442,10 +451,10 @@ the export does.
 - **One "already have" colour** (violet `--have`, distinct from the confidence
   and warning colours) marks it everywhere: the badge ("already in playlist" is
   filled; "likely" is outlined; "other version" is dashed), a banner above the
-  match naming the matched playlist row and its score, a tinted card frame, and
-  a stripe on the queue row.
-- **On such a song, Keep becomes "Keep (held back)"** (`K`), and **Keep & add
-  anyway** (`A`) overrides it. The override is stored on the decision
+  match naming the matched playlist row and its score, and a tinted card frame.
+  In the queue, the badge alone marks it.
+- **On such a song, Keep becomes "Hold back"** (`1`), and **Add anyway**
+  (`⇧1`) overrides it. The override is stored on the decision
   (`addAnyway`), so the card, the queue and the Kept list agree and it survives
   reloads. It's cleared when the song is recorded as added.
 - **Queue markers say what will happen:** `✓` exported, `⊘` kept but held back,

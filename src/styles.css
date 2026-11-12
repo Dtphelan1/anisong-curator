@@ -4,12 +4,14 @@
   --bound: #fff3c4; --done: 0.45; --sel-bg: #eef2ff;
   /* "Already have": songs already in the playlist. Distinct from ok/warn/bad/accent. */
   --have: #9333ea; --have-fg: #ffffff; --have-bg: #f7f0fe;
+  --ok-bg: #eefaf1; --warn-bg: #fff6e6; --bad-bg: #fdeeee;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #16161a; --fg: #e8e8ec; --muted: #9a9aa5; --line: #33333b; --card: #1f1f25;
     --accent: #8aa2ff; --accent-fg: #10121a; --ok: #4cc26b; --bad: #ff6b6b; --warn: #f0ad4e; --bound: #4a3f12; --sel-bg: #1e2340;
-    --have: #c084fc; --have-fg: #1d1030; --have-bg: #2a1f3a; }
+    --have: #c084fc; --have-fg: #1d1030; --have-bg: #2a1f3a;
+    --ok-bg: #16291d; --warn-bg: #2e2513; --bad-bg: #331b1d; }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, sans-serif; }
@@ -126,7 +128,6 @@ button.have-btn { border-color: var(--have); }
 button.have-btn:not(.secondary) { background: var(--have); color: var(--have-fg); }
 button.have-btn.secondary { color: var(--have); }
 button.have-btn.on { box-shadow: 0 0 0 2px var(--have); }
-table.queue tr.have-row td:first-child { box-shadow: inset 4px 0 0 var(--have); }
 table.queue td.marker { width: 28px; text-align: center; }
 ul.later { margin: 6px 0 0; padding-left: 18px; }
 ul.later li { margin: 3px 0; }
@@ -177,3 +178,15 @@ table.queue tr.group-head td { background: var(--card); font-weight: 600; paddin
   .review-side > .queue-card, .review-side > .side-scroll { flex: 1; min-height: 0; }
 }
 .cands-note { margin: 6px 8px 0; }
+
+/* Song box colour follows its status badge (confident / check me / unlikely / no match). */
+.match.frame-high { border-color: var(--ok); box-shadow: inset 4px 0 0 var(--ok); background: var(--ok-bg); }
+.match.frame-check { border-color: var(--warn); box-shadow: inset 4px 0 0 var(--warn); background: var(--warn-bg); }
+.match.frame-low, .match.frame-none { border-color: var(--bad); box-shadow: inset 4px 0 0 var(--bad); background: var(--bad-bg); }
+.match.none.frame-none { color: var(--fg); }
+a.button { display: inline-block; font: inherit; padding: 5px 12px; border-radius: 5px; border: 1px solid var(--accent); text-decoration: none; }
+a.button.secondary { color: var(--accent); background: transparent; }
+a.yt { margin-left: 8px; }
+.done-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 6px 0; padding: 8px 10px; border: 1px solid var(--ok); border-radius: 8px; background: var(--ok-bg); }
+.queue-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.queue-nav .queue-pos { font-variant-numeric: tabular-nums; text-align: center; flex: 1; }
