@@ -75,6 +75,8 @@
   <button id="sc-run-stage">Add selected → new staging playlist</button>
   <button class="secondary" id="sc-run-append">Add selected → append to playlist</button>
   <div class="muted" id="sc-sel">0 tracks selected in section 3.</div>
+  <label>…or paste track IDs / Apple Music song links (overrides the selection)
+    <input type="text" id="sc-ids" size="50" placeholder="1529543135, https://music.apple.com/us/song/1830210171"></label>
   <textarea id="sc-paste" placeholder="…or paste a shortcut result (clipboard fallback) here"></textarea>
   <button class="secondary" id="sc-parse">Parse pasted result as…</button>
   <select id="sc-parse-kind"><option value="echo">Echo</option><option value="tail">Read Tail</option><option value="add">Add Tracks</option></select>
@@ -132,7 +134,7 @@ function rep(path, value) { S.report[path] = value; save(); }
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 /* ---------- settings persistence ---------- */
-const SETTINGS = ['al-user','al-client','at-n','it-term','it-cc','it-cc2','sc-echo','sc-tail','sc-add','sc-pl','sc-n'];
+const SETTINGS = ['al-user','al-client','at-n','it-term','it-cc','it-cc2','sc-echo','sc-tail','sc-add','sc-pl','sc-n','sc-ids'];
 for (const id of SETTINGS) {
   if (S.settings[id] != null) $(id).value = S.settings[id];
   $(id).addEventListener('change', () => { S.settings[id] = $(id).value; save(); });
@@ -324,7 +326,8 @@ async function itunes(path, params) {
     return await res.json();
   } catch (err) {
     if (err.status) throw err; // real HTTP error, not CORS
-    log(`iTunes fetch failed (${err.message}); trying JSONP.`);
+    rep('itunes.fetchError', `${err.name}: ${err.message}`);
+    log(`iTunes fetch failed (${err.name}: ${err.message}); trying JSONP.`);
     const data = await jsonp(url);
     rep('itunes.transport', 'JSONP (fetch blocked by CORS)');
     return data;
@@ -414,12 +417,24 @@ $('sc-run-tail').onclick = () => {
   const playlist = $('sc-pl').value.trim(); if (!playlist) return alert('Enter the playlist name');
   runShortcut($('sc-tail').value, { playlist, n: +$('sc-n').value || 30 }, 'tail');
 };
+// Pasted ids win over the section-3 selection, so Add Tracks can be tested
+// on a device where iTunes search doesn't work.
+function idsToAdd() {
+  const raw = $('sc-ids').value.trim();
+  if (!raw) return S.selected;
+  return [...new Set(raw.split(/[\s,]+/).map(x => {
+    const i = x.match(/[?&]i=(\d+)/); if (i) return Number(i[1]);
+    const m = x.match(/(\d{6,})(?!.*\d{6,})/); return m ? Number(m[1]) : null;
+  }).filter(Boolean))];
+}
 function addTracks(mode) {
-  if (!S.selected.length) return alert('Select tracks in section 3 first');
+  const ids = idsToAdd();
+  if (!ids.length) return alert('Select tracks in section 3, or paste track IDs');
   const playlist = $('sc-pl').value.trim();
   if (mode === 'append' && !playlist) return alert('Enter the playlist name');
-  if (mode === 'append' && !confirm(`Append ${S.selected.length} track(s) to "${playlist}"? This can't be undone from the app.`)) return;
-  runShortcut($('sc-add').value, { mode, playlist, country: $('it-cc').value.trim() || 'us', ids: S.selected }, 'add-' + mode);
+  if (mode === 'append' && !confirm(`Append ${ids.length} track(s) to "${playlist}"? This can't be undone from the app.`)) return;
+  rep('bridge.idsSource', $('sc-ids').value.trim() ? 'pasted' : 'search selection');
+  runShortcut($('sc-add').value, { mode, playlist, country: $('it-cc').value.trim() || 'us', ids }, 'add-' + mode);
 }
 $('sc-run-stage').onclick = () => addTracks('staging');
 $('sc-run-append').onclick = () => addTracks('append');
