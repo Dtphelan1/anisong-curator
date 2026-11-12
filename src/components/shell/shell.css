@@ -100,3 +100,5 @@ button:disabled { cursor: default; }
 .welcome-needs { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 @media (max-width: 640px) { .welcome-steps { grid-template-columns: 1fr; } }
 .resuming { padding: 40px; text-align: center; }
+.page-notes { padding: 10px 20px 0; display: flex; flex-direction: column; gap: 8px; }
+.page-notes p { margin: 0; }

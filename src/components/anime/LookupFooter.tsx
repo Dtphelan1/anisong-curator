@@ -44,7 +44,7 @@ export function LookupFooter(p: Props) {
     <footer className="ap-foot">
       <span className="ap-foot-count">
         <b>{plural(p.candidates.length, 'show')}</b> selected
-        {p.candidates.length > 0 && <span className="muted"> · ~{plural(songs, 'song')}{unknown > 0 && `, + ${plural(unknown, 'show')} not looked up yet`}</span>}
+        {p.candidates.length > 0 && <span className="muted"> · {songs === 0 && unknown > 0 ? 'songs not looked up yet' : <>~{plural(songs, 'song')}{unknown > 0 && `, + ${plural(unknown, 'show')} not looked up yet`}</>}</span>}
       </span>
       {p.handChanges > 0 && (
         <span className="muted">{plural(p.handChanges, 'hand change')} · <button className="link" onClick={p.onResetEdits}>reset</button></span>

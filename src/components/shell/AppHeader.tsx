@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { ago } from '../settings/sections';
 
 export interface Crumb { label: string; count?: number; current?: boolean; onClick?: () => void }
@@ -14,8 +14,19 @@ interface Props {
 
 /** ⚙ · app name · session crumbs · AniList chip · playlist chip. */
 export function AppHeader({ onSettings, settingsOpen, crumbs = [], account, playlist }: Props) {
+  // Pages pin their own bars under the header: publish its height (it wraps on narrow screens).
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const set = () => document.documentElement.style.setProperty('--app-header-h', `${el.offsetHeight}px`);
+    set();
+    const ro = new ResizeObserver(set);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   return (
-    <header className="app-header">
+    <header className="app-header" ref={ref}>
       <button className={`gear ${settingsOpen ? 'on' : ''}`} onClick={onSettings} aria-label="Settings" aria-expanded={settingsOpen} title="Settings">⚙</button>
       <span className="brand">anisong-curator</span>
       {crumbs.length > 0 && (
