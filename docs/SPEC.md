@@ -85,8 +85,8 @@ or the bundle.
 └────────┼─────────────────────────────────────────────────────────────────┘  │
          │                                                                     ▼
          │                                ┌─────────── Apple Shortcuts ─────────────┐
-         └────────────────────────────────│ "Anisong · Read Tail"  (playlist → JSON)│
-                                          │ "Anisong · Add Tracks" (IDs → playlist) │
+         └────────────────────────────────│ "Anisong Read Tail"  (playlist → JSON)  │
+                                          │ "Anisong Add Tracks" (IDs → playlist)   │
                                           └──────────────── Music library ──────────┘
 ```
 
@@ -157,7 +157,7 @@ Shortcuts can't be generated as signed files from the repo. The repo ships
 build instructions (`shortcuts/README.md`), and you make them once by hand, or
 import them from an iCloud share link you create.
 
-### 6.1 "Anisong · Read Tail"
+### 6.1 "Anisong Read Tail" (spike; superseded)
 Input: `{"playlist": "<name>", "n": 30}`
 1. Get Dictionary from Input → playlist name, n.
 2. **Get Playlist** named *playlist*, then **Get Items from** it. Verify that
@@ -172,7 +172,7 @@ Limitation: music items in Shortcuts expose names, album, duration, and date
 added, but **not the catalog ID or ISRC**. The app has to match the tail by
 normalized title + artist (+ duration).
 
-### 6.2 "Anisong · Add Tracks"
+### 6.2 "Anisong Add Tracks" (spike; now `Anisong Add Kept`)
 Input:
 `{"mode": "staging"|"append", "playlist": "<name>", "country": "us", "ids": [..]}`
 1. For each ID, build `https://music.apple.com/{country}/song/{id}`.
