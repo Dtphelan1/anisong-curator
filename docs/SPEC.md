@@ -76,7 +76,7 @@ or the bundle.
 
 ```
 ┌──────────────────── Browser SPA (Vite + React + TS) ─────────────────────┐
-│ Load list → Pick last show → Songs → Review → Kept (dedupe + export)     │
+│ Load list → Pick anime → Songs → Review → Kept (dedupe + export)         │
 │                                                                          │
 │ anilist.ts   themes.ts      matcher.ts +    itunes.ts                    │
 │ GraphQL      AnimeThemes    matching.ts     iTunes Search / Lookup       │
@@ -128,7 +128,9 @@ is the most exact duplicate source (§9.4).
    private), the country, and the playlist name.
 2. **Load lists.** One `MediaListCollection(userName, type: ANIME)` query
    returns every list. Chunk it if large, and cache it.
-3. **Order shows** (§8). Pick a lower bound (Mode 1), or let V2 suggest one.
+3. **Pick the anime** (§8): a multi-select list. The quick start is "everything
+   newer than the last show added" (picked by hand or suggested by V2), then
+   add or remove individual shows.
 4. **Resolve themes** with AnimeThemes, falling back to Jikan. Cache permanently;
    negative results get a TTL.
 5. **Match** with iTunes Search (§9.2). This is the slow step because of the
@@ -227,7 +229,7 @@ discovery and review work.
 A position in a sorted list misses shows whose sort key changes after the fact.
 Diffing against saved state doesn't.
 
-## 8. Ordering rules (Mode 1)
+## 8. Ordering and picking the anime
 
 Sort fields: `completedAt`, `startedAt`, `updatedAt`, `createdAt` (added),
 `score`, `progress`, `repeat`, and title. These mirror AniList's
@@ -248,6 +250,31 @@ Edge cases:
   handles this.
 - **Seasons and sequels** are separate media with separate themes.
 - A toggle to include or exclude dropped shows. Default on, per the brief.
+
+### 8.1 Picking which anime to add
+The list asks **"Which anime would you like to add?"** and is a navigable
+multi-select: each row has a checkbox, selected rows are tinted, and the rest
+are dimmed. The "last show added" is the quick way in, not the only one.
+
+- **Model** (`selection.ts`): a **base** plus per-show **include** and
+  **exclude** lists of AniList IDs. Bases:
+  - `newer`: everything more recent than the last show added (`boundId`), or
+    everything with no bound. This is the default; shows you finish later join
+    automatically.
+  - `all` or `none`.
+  Hand edits survive the list growing or being re-sorted. Stored in settings.
+- **Mouse:** click or the checkbox toggles a show; **Shift**-click sets the range
+  from the last click to the same state; **Alt/Option**-click marks a show as the
+  last added (selects everything newer); **Cmd/Ctrl**-click selects only that
+  show.
+- **Keyboard** (list focused): `↑`/`↓` or `J`/`K` move; `Space` toggles;
+  `Shift`+`↑`/`↓` extends; `L` marks the last added; `A`, `N` and `I` select all,
+  none, or invert; `↵` finds songs.
+- **Toolbar:** a live "N of M selected" with a description of the selection,
+  All / None / Invert, and "Newer than last added" to reset hand edits.
+- **The V2 suggestion** (§9.5) and the import panel's "Use as last show" set the
+  bound and reset to `newer`.
+
 
 ## 9. Technical and integration challenges
 

@@ -15,7 +15,9 @@ npm test
 ```
 
 Status: M1–M4 and M6 done; duplicate prevention in progress.
-- **M1:** AniList list, ordering, and the "last show added" picker.
+- **M1:** AniList list, ordering, and the anime picker: multi-select with checkboxes,
+  Shift/Alt/Cmd-click and keyboard shortcuts, and "everything newer than the last
+  show added" as the quick start.
 - **M2:** OP/ED lookup via AnimeThemes GraphQL, with a Jikan fallback.
 - **M3:** Apple Music matching via iTunes Search, plus a keyboard-driven review
   with previews: `K` keep, `S` skip, `L` later, `/` search or paste a link.

@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { Show, ThemeLookup } from './types';
 import { authorizeUrl, consumeTokenFromHash, fetchAnimeList, fetchViewerName } from './lib/anilist';
 import { loadLatestSnapshot, loadShows, saveShows, themeCache, type PlaylistSnapshot } from './lib/db';
-import { candidatesAfterBound, orderShows } from './lib/ordering';
+import { orderShows } from './lib/ordering';
+import { selectedShows, selectNewer } from './lib/selection';
 import { useSettings } from './lib/settings';
 import { resolveThemes, type ResolveProgress } from './lib/themes';
 import { ShowPicker } from './components/ShowPicker';
@@ -41,8 +42,8 @@ export function App() {
 
   const ordered = useMemo(() => orderShows(shows, settings.order), [shows, settings.order]);
   const candidates = useMemo(
-    () => candidatesAfterBound(ordered, settings.boundId, settings.order.direction),
-    [ordered, settings.boundId, settings.order.direction],
+    () => selectedShows(settings.selection, { ordered, boundId: settings.boundId, direction: settings.order.direction }),
+    [ordered, settings.selection, settings.boundId, settings.order.direction],
   );
 
   const reviewItems = useMemo(
@@ -117,7 +118,7 @@ export function App() {
           ordered={ordered}
           direction={settings.order.direction}
           boundId={settings.boundId}
-          onBound={(boundId) => update({ boundId })}
+          onBound={(boundId) => update({ boundId, selection: selectNewer() })}
           onSuggest={setSuggestedId}
         />
       )}
@@ -128,7 +129,8 @@ export function App() {
           order={settings.order}
           onOrder={(order) => update({ order })}
           boundId={settings.boundId}
-          onBound={(boundId) => update({ boundId })}
+          selection={settings.selection}
+          onSelect={(patch) => update(patch)}
           suggestedId={suggestedId}
           candidateCount={candidates.length}
           onContinue={() => findThemes()}
