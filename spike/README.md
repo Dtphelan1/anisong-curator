@@ -28,8 +28,11 @@ the Mac.
    preview. Open a *Verify ID* link to confirm `trackId` is the Apple Music ID.
    Tick 1–3 tracks, ideally ones **not** in your library. Optionally run the
    cross-storefront lookup and the throttle probe.
-4. **Shortcuts.** Build them first ([`../shortcuts/README.md`](../shortcuts/README.md)).
-   Then run, in order: *Echo* → *Read Tail* → *Add selected → staging*.
+4. **Shortcuts.** First build the spike shortcuts `Anisong Echo`,
+   `Anisong Read Tail` and `Anisong Add Tracks`; the shortcuts setup guide
+   ([`../shortcuts/README.md`](../shortcuts/README.md)) has their steps. Then
+   run, in order: *Echo* → *Read Tail* → *Add selected → staging*. The app
+   itself doesn't need these; they exist only for this page.
    Only try *append* once staging works, and on a playlist you don't mind
    leaving a test song in. Appends can't be undone from the app.
 5. Tick the **manual observations** that held true, add notes, then press

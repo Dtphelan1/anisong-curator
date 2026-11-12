@@ -61,7 +61,8 @@ keyless approach work. Confirm it in the spike.
   `anilist.co/settings/developer` with redirect URL
   `http://localhost:5173/callback`. The SPA uses the implicit grant, so it only
   needs the client ID. There is no secret.
-- **A Mac or iPhone with Shortcuts**, and the two shortcuts in §6 installed.
+- **A Mac or iPhone with Shortcuts**, with the two shortcuts in §6 built
+  (`Anisong Add Kept`, `Anisong Export Playlist`).
 - **Settings in the app:** AniList username, Apple Music country code (`us`, `jp`,
   …), and the target playlist's **name** (Shortcuts addresses playlists by name).
 
@@ -72,36 +73,30 @@ or the bundle.
 
 ```
 ┌──────────────────── Browser SPA (Vite + React + TS) ─────────────────────┐
-│ Wizard: Connect → Load lists → Lower bound → Resolve → Review → Commit   │
+│ Load list → Pick last show → Songs → Review → Kept (dedupe + export)     │
 │                                                                          │
-│ anilist.ts   themes.ts      matcher.ts     catalog.ts (MusicProvider)    │
-│ GraphQL      AnimeThemes    queries +      iTunes Search / Lookup        │
-│              + Jikan fb     scoring        (fetch, JSONP fallback)       │
-│        └──── per-host rate-limited queue (token bucket, 429/403 backoff) │
-│                     IndexedDB (Dexie): cache + decisions + cursor        │
-│                                                                          │
-│ shortcutsBridge.ts ── shortcuts://x-callback-url/run-shortcut?... ───────┼──┐
-│        ▲  x-success → http://localhost:5173/bridge?result=<json>         │  │
-└────────┼─────────────────────────────────────────────────────────────────┘  │
-         │                                                                     ▼
-         │                                ┌─────────── Apple Shortcuts ─────────────┐
-         └────────────────────────────────│ "Anisong Read Tail"  (playlist → JSON)  │
-                                          │ "Anisong Add Tracks" (IDs → playlist)   │
-                                          └──────────────── Music library ──────────┘
+│ anilist.ts   themes.ts      matcher.ts +    itunes.ts                    │
+│ GraphQL      AnimeThemes    matching.ts     iTunes Search / Lookup       │
+│              + Jikan fb     (scoring)       (fetch, JSONP fallback)      │
+│ playlistImport.ts + dedupe.ts: playlist snapshot, duplicate tiers        │
+│ per-host rate limiting · IndexedDB: caches, decisions, snapshot, add log │
+└─────────────────▲───────────────────────────────────────┬────────────────┘
+                  │ paste into Sync playlist              │ Copy / Share…
+┌─────────────────┴──────────── Apple Shortcuts ──────────▼────────────────┐
+│ Anisong Export Playlist                 Anisong Add Kept                 │
+│ (playlist → text)                       (links → playlist)               │
+└──────────────────────────────── Music library ───────────────────────────┘
 ```
 
 - A pure client-side SPA with no backend.
-- **`MusicProvider` interface** (`search`, `lookup`, `readPlaylistTail`,
-  `addTracks`, `createPlaylist`). The keyless implementation is
-  `ItunesShortcutsProvider`. A later `MusicKitProvider` (§10) can be added
-  without touching the matcher or the UI.
-- **Shortcuts bridge.** The app starts a shortcut through the
-  `shortcuts://x-callback-url/run-shortcut` URL scheme, with
-  `input=text&text=<json>`. The shortcut's output comes back as a `result`
-  query parameter on the `x-success` URL, which points at the app's
-  `/bridge` route. Fallback when x-callback is flaky (e.g. Safari vs Chrome
-  handling): **clipboard**. The shortcut copies the JSON and the app has a
-  "paste result" box.
+- **Catalog access** is `itunes.ts` (keyless Search/Lookup). A later
+  MusicKit client (§10) could replace it without touching the matcher or the UI.
+- **Library access goes through two Shortcuts (§6), handed text by the user,
+  never called by the app.** The app copies the kept list (or offers the Share
+  Sheet); `Anisong Add Kept` adds it. `Anisong Export Playlist` copies the
+  playlist as text; the user pastes it into the app's **Sync playlist** box.
+  There's no x-callback bridge: the clipboard and Share Sheet proved simpler
+  and more reliable than launching shortcuts from the page.
 
 ### 5.1 Data model (IndexedDB)
 
@@ -118,15 +113,15 @@ RunCursor  { lastProcessedEntries: {anilistId → updatedAt}, sortField, committ
 PlaylistSnapshot { name, rows[{position, title, artist, album, durationMs}], importedAt }  // Dexie v3
 ```
 
-`CommitLog` matters more here than in the MusicKit design. The playlist can only
-be read through a Shortcut that lists names and artists, so the app's own record
-of what it sent is the most exact duplicate source.
+The **add log** (Dexie v4 `added`; the `CommitLog` above in the original design)
+matters more here than it would with MusicKit. The playlist can only be read as
+names and artists, never catalog IDs, so the app's own record of what it sent
+is the most exact duplicate source (§9.4).
 
 ### 5.2 Pipeline
 
 1. **Settings / connect.** Enter the AniList username (run OAuth if the list is
-   private), the country, and the playlist name. A one-time "test bridge" button
-   round-trips a no-op through Shortcuts.
+   private), the country, and the playlist name.
 2. **Load lists.** One `MediaListCollection(userName, type: ANIME)` query
    returns every list. Chunk it if large, and cache it.
 3. **Order shows** (§8). Pick a lower bound (Mode 1), or let V2 suggest one.
@@ -141,53 +136,69 @@ of what it sent is the most exact duplicate source.
    also accepts a pasted `music.apple.com/.../song/...` or `?i=` URL, which is
    parsed to a `trackId` and resolved with Lookup. This is an exact escape hatch
    for anything the matcher misses.
-7. **Commit.**
-   1. Run "Read Tail" to refresh `PlaylistSnapshot`.
-   2. Show the confirmation screen: new tracks, likely duplicates (each one
-      toggleable), and unmatched themes (exported as text).
-   3. Run "Add Tracks" with `{mode: 'staging'|'append', playlist, trackIds}` in
-      chronological order.
-   4. Write `CommitLog` as *pending*.
-   5. Run "Read Tail" again to **verify** the tracks landed, then mark the log
-      *confirmed* and advance `RunCursor`.
+7. **Kept: dedupe and export** (§9.4).
+   1. Optionally refresh the playlist snapshot: run `Anisong Export Playlist`
+      and paste its text into **Sync playlist** (or import a Mac export).
+   2. The app holds back likely duplicates (against the snapshot and the add
+      log), with reasons and **add anyway**.
+   3. **Copy** (or **Share…**) the rest, in chronological order, and run
+      `Anisong Add Kept`.
+   4. Press **I added these**: the batch goes into the add log (undoable),
+      so it's never exported again.
 
-## 6. The two Shortcuts
+## 6. Shortcuts
 
-Shortcuts can't be generated as signed files from the repo. The repo ships
-build instructions (`shortcuts/README.md`), and you make them once by hand, or
-import them from an iCloud share link you create.
+Shortcuts can't be generated as files from the repo; you build them once by
+hand. **Build steps live in the shortcuts setup guide,
+[`shortcuts/README.md`](../shortcuts/README.md).** This section is the
+*contract* each shortcut must meet, so either document can be reorganized
+without breaking the other. Refer to shortcuts by name, not by where they're
+documented.
 
-### 6.1 "Anisong Read Tail" (spike; superseded)
-Input: `{"playlist": "<name>", "n": 30}`
-1. Get Dictionary from Input → playlist name, n.
-2. **Get Playlist** named *playlist*, then **Get Items from** it. Verify that
-   these come back in playlist order.
-3. Take the last *n* items (Get Items from List, range).
-4. Repeat with each item → Dictionary
-   `{title, artist, album, durationMs}` → add to a list.
-5. Return the list as JSON text. The x-callback `result` carries it back.
-   Also Copy to Clipboard as a fallback.
+### 6.1 `Anisong Add Kept`: add songs
+- **Input:** text from the Share Sheet, or the clipboard when run without
+  input. Any text containing `music.apple.com/{cc}/song/{id}` links. The app's
+  Shortcut format puts one song per line (`Title | Artist | link`), but only
+  the links are used.
+- **Behavior:** extract the links in order, then add them to the target
+  playlist, or create `anisong-curator <date>` with them. **No duplicate
+  checks:** the app does those (§9.4).
+- **Status:** verified on iOS 2026-11-12 (new playlist); appending to the
+  existing playlist hasn't been confirmed yet.
 
-Limitation: music items in Shortcuts expose names, album, duration, and date
-added, but **not the catalog ID or ISRC**. The app has to match the tail by
-normalized title + artist (+ duration).
+### 6.2 `Anisong Export Playlist`: read the playlist
+- **Input:** none.
+- **Output (clipboard):** the `anisong-playlist v1` text that the app's
+  **Sync playlist** box parses (`playlistImport.ts`):
+  ```
+  anisong-playlist v1
+  <playlist name>
+  ---titles---
+  <one title per line>
+  ---artists---
+  <one artist per line, same order>
+  ---durations---
+  <one duration per line, same order; seconds or m:ss; optional>
+  ```
+  The sections are parallel lists. If the title and artist counts differ, the
+  app warns and matches on titles only.
+- **Constraints:** read-only, and no per-song loop (it must stay fast on a large
+  playlist). Row order isn't guaranteed to be playlist order, so it's used for
+  duplicate checks only. The "suggest last show" feature (§9.5) needs an
+  ordered Mac export.
 
-### 6.2 "Anisong Add Tracks" (spike; now `Anisong Add Kept`)
-Input:
-`{"mode": "staging"|"append", "playlist": "<name>", "country": "us", "ids": [..]}`
-1. For each ID, build `https://music.apple.com/{country}/song/{id}`.
-2. Turn the URLs into music items. **This is the riskiest step; see spike #1.**
-   Candidate actions: pass the URL directly to *Add to Playlist*;
-   *Add to Library*, then find it and *Add to Playlist*; or a shortcut built
-   from the Apple Music "Search" action keyed on title + artist.
-3. `staging` → **Create Playlist** named "anisong-curator · {date}" with the
-   items. `append` → **Add to Playlist** *playlist*.
-4. Return `{added: n, failed: [ids]}`.
+### 6.3 Manual fallback: link checklist
+If adding from links ever stops working, the Kept list becomes a checklist of
+`music.apple.com` links in order. Each opens in Music, and you add it with
+"+". That's tolerable at ~10–25 songs a season, and still saves all of the
+discovery and review work.
 
-**Manual fallback when step 2 can't be automated:** the commit screen becomes a
-checklist of `music.apple.com` links in order. Each opens in Music, and you add
-it with the "+" button. That's tolerable at ~10–25 songs a season, and still
-saves all of the discovery and review work.
+### 6.4 Retired
+- **Spike shortcuts** `Anisong Echo`, `Anisong Read Tail` and `Anisong Add
+  Tracks` answered the feasibility questions in §11. The app doesn't use them;
+  the setup guide keeps their build steps for re-running the spike page.
+- **Duplicate check inside the add shortcut.** It was too slow and only matched
+  exact text, so it was replaced by the app-side check (§9.4).
 
 ## 7. Saved state instead of a lower bound (recommendation)
 
@@ -426,7 +437,7 @@ Network probes weren't possible while this spec was written. In priority order:
    Original question: **Shortcuts: catalog ID/URL → added to a playlist.** Can "Add to Playlist"
    (or Add to Library, then Add to Playlist) accept a `music.apple.com` song URL
    for a song that isn't in your library? Test on both macOS and iOS. If this
-   fails, commit falls back to the manual link checklist (§6.2).
+   fails, adding falls back to the manual link checklist (§6).
 2. *Superseded:* playlist reads now use the Music.app export (§9.6, M6).
    Original question: **Shortcuts: playlist items in playlist order**, and which properties
    (title, artist, album, duration) can be read.
