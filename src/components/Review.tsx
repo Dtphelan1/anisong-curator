@@ -7,10 +7,11 @@ import type { Candidate, MatchResult } from '../lib/matching';
 import { chosenTrack } from '../lib/tailInference';
 import {
   addedAsRows, checkSources, indexRows, planExport, REASON_LABEL, shortcutLine, themeNames, TIER_LABEL,
-  type AddedRecord, type DupHit, type DupIndex, type ExportItem,
+  withStoreName, type AddedRecord, type DupHit, type DupIndex, type ExportItem, type StoreName,
 } from '../lib/dedupe';
 import { parsePlaylist, type ParseResult } from '../lib/playlistImport';
 import { useAdded } from '../lib/useAdded';
+import { useStoreNames } from '../lib/useStoreNames';
 import { useDecisions, useMatching, type ReviewItem } from '../lib/useMatching';
 
 interface Props {
@@ -53,6 +54,9 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
   const { added, record, undoBatch } = useAdded();
   const playlist = useMemo(() => (snapshot ? indexRows(snapshot.rows, { artistsKnown: snapshot.artistsKnown !== false }) : null), [snapshot]);
   const addedIndex = useMemo(() => (added.length ? indexRows(addedAsRows(added)) : null), [added]);
+  // JP-store names of kept tracks (勇者 for "Yuusha"): extra alt names for the check.
+  const keptIds = useMemo(() => [...decisions.values()].flatMap((d) => (d.decision === 'keep' && d.trackId ? [d.trackId] : [])), [decisions]);
+  const storeNames = useStoreNames(keptIds, country);
   // Same scoring as the export plan, so the badges and the held-back list agree.
   const inPlaylist = useMemo(() => {
     const m = new Map<string, DupHit>();
@@ -61,13 +65,13 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
       const t = chosenTrack(matches.get(it.key));
       if (!t) continue;
       const hit = checkSources(
-        { trackId: t.trackId, title: t.trackName, artist: t.artistName, durationMs: t.trackTimeMillis, ...themeNames(it.theme) },
+        withStoreName({ trackId: t.trackId, title: t.trackName, artist: t.artistName, durationMs: t.trackTimeMillis, ...themeNames(it.theme) }, storeNames.get(t.trackId)),
         { playlist, added, addedIndex },
       );
       if (hit) m.set(it.key, hit);
     }
     return m;
-  }, [playlist, added, addedIndex, items, matches]);
+  }, [playlist, added, addedIndex, items, matches, storeNames]);
   const hidden = useCallback((i: number) => hideInPlaylist && inPlaylist.get(items[i]!.key)?.tier === 'duplicate', [hideInPlaylist, inPlaylist, items]);
   const dupCount = useMemo(() => [...inPlaylist.values()].filter((x) => x.tier === 'duplicate').length, [inPlaylist]);
 
@@ -205,7 +209,7 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
       </section>
 
       <Queue items={items} index={index} onPick={setIndex} matches={matches} status={status} decisions={decisions} inPlaylist={inPlaylist} />
-      <KeptSummary items={items} matches={matches} decisions={decisions} country={country} playlistName={playlistName} playlist={playlist} snapshot={snapshot} onSnapshot={onSnapshot} added={added} onRecord={record} onUndo={undoBatch} />
+      <KeptSummary items={items} matches={matches} decisions={decisions} country={country} playlistName={playlistName} playlist={playlist} snapshot={snapshot} onSnapshot={onSnapshot} added={added} storeNames={storeNames} onRecord={record} onUndo={undoBatch} />
     </>
   );
 }
@@ -373,10 +377,10 @@ function ago(ms: number, now = Date.now()): string {
   return `${Math.round(h / 24)} days ago`;
 }
 
-function KeptSummary({ items, matches, decisions, country, playlistName, playlist, snapshot, onSnapshot, added, onRecord, onUndo }: {
+function KeptSummary({ items, matches, decisions, country, playlistName, playlist, snapshot, onSnapshot, added, storeNames, onRecord, onUndo }: {
   items: ReviewItem[]; matches: Map<string, MatchResult>; decisions: Map<string, { decision: DecisionValue; trackId: number | null }>;
   country: string; playlistName: string; playlist: DupIndex | null; snapshot: PlaylistSnapshot | null; onSnapshot: (s: PlaylistSnapshot) => void;
-  added: AddedRecord[]; onRecord: (items: ExportItem[]) => Promise<string>; onUndo: (batchId: string) => Promise<void>;
+  added: AddedRecord[]; storeNames: Map<number, StoreName>; onRecord: (items: ExportItem[]) => Promise<string>; onUndo: (batchId: string) => Promise<void>;
 }) {
   const [copied, setCopied] = useState(false);
   const [overrides, setOverrides] = useState<Set<string>>(new Set());
@@ -390,15 +394,16 @@ function KeptSummary({ items, matches, decisions, country, playlistName, playlis
     const d = decisions.get(it.key);
     if (d?.decision !== 'keep' || !d.trackId) return [];
     const t = matches.get(it.key)?.candidates.find((x) => x.track.trackId === d.trackId)?.track;
-    return [{
+    // The theme's romaji/native names and the JP-store name catch a playlist
+    // that names the song differently (勇者 vs "Yuusha", "B no Revenge" vs "Revenge of B").
+    return [withStoreName({
       key: it.key, trackId: d.trackId,
       title: t?.trackName ?? it.theme.songTitle ?? '', artist: t?.artistName ?? it.theme.artists.join(', '),
       durationMs: t?.trackTimeMillis ?? null, url: songUrl(d.trackId, country),
       label: `${displayTitle(it.show)} ${it.theme.slug}`,
-      // The theme's romaji/native names catch a playlist that names the song differently (紅蓮華 vs Gurenge).
       ...themeNames(it.theme),
-    }];
-  }), [items, decisions, matches, country]);
+    }, storeNames.get(d.trackId))];
+  }), [items, decisions, matches, country, storeNames]);
   const plan = useMemo(() => planExport(exportItems, { playlist, added, overrides }), [exportItems, playlist, added, overrides]);
   if (!exportItems.length && !lastBatch) return null;
 

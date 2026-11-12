@@ -276,6 +276,15 @@ export function themeNames(theme: Pick<Theme, 'songTitle' | 'songTitleNative' | 
   };
 }
 
+/** A track's name in another storefront (e.g. JP: 勇者 for "Yuusha"). null: not sold there. */
+export type StoreName = { title: string; artist: string } | null;
+
+/** Fold another storefront's name for the track into the alt titles/artists. */
+export function withStoreName<T extends { altTitles?: string[]; altArtists?: string[] }>(q: T, name: StoreName | undefined): T {
+  if (!name) return q;
+  return { ...q, altTitles: [...(q.altTitles ?? []), name.title], altArtists: [...(q.altArtists ?? []), name.artist] };
+}
+
 /* ------------------------------------------------------------------ */
 /* Both sources: playlist snapshot and add log                         */
 /* ------------------------------------------------------------------ */

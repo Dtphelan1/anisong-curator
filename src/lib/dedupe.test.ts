@@ -4,7 +4,7 @@ import fixture from './__fixtures__/animethemes-gql.json';
 import recording from './__fixtures__/itunes-recording.json';
 import { FIXTURE_IDS } from './__fixtures__/tail';
 import {
-  checkSources, classify, DUP, findDuplicate, indexRows, planExport, shortcutLine, themeNames,
+  checkSources, classify, DUP, findDuplicate, indexRows, planExport, shortcutLine, themeNames, withStoreName,
   type AddedRecord, type DupQuery, type ExportItem,
 } from './dedupe';
 import type { ItunesTrack } from './itunes';
@@ -50,6 +50,15 @@ describe('likelihood tiers', () => {
     expect(tierOf([row('よあけのうた', 'jo0ji', 199_000)], query(track(1860793850)))).toBeNull();
     // Native artist too: US "QUEEN BEE" vs a JP library's 女王蜂 (theme artistsNative).
     expect(tierOf([row('PERSONAL', '女王蜂', 275_000)], query(track(1864160080), theme(166613, 'ED1')))).toBe('duplicate');
+  });
+
+  it('a native title only the JP store knows, via the JP-store name', () => {
+    // AnimeThemes often has no native title (Frieren OP1 is plain "Yuusha"); the JP store says 勇者.
+    const yuusha = { title: 'Yuusha', artist: 'YOASOBI', durationMs: 194_000, altTitles: ['Yuusha'], altArtists: ['YOASOBI'] };
+    const pl = [row('勇者', 'YOASOBI', 194_000)];
+    expect(tierOf(pl, yuusha)).toBeNull();
+    expect(tierOf(pl, withStoreName(yuusha, { title: '勇者', artist: 'YOASOBI' }))).toBe('duplicate');
+    expect(withStoreName(yuusha, null)).toBe(yuusha);
   });
 
   it('translated catalog title vs the original in the playlist, via the theme alt titles', () => {
