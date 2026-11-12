@@ -138,17 +138,17 @@ linked to its show and OP/ED.
   confident"** as an explicit, confirmed batch decision.
 
 ## Batch C: tidy the overall flow
-- [ ] **Step bar:** AniList · Anime · Songs · Review · Export, with counts;
-  finished steps collapse to one-line summaries. This also lets the pinned
-  review card start at the top of the screen.
+- [x] **Step bar:** the app header's crumbs (Anime · Songs · Review, with
+  counts). AniList moved to setup and Settings, so nothing sits above the
+  pages any more.
 - [x] **Skip or slim the songs step:** the songs step is now a progress bar in
   the anime page's footer, with per-show song counts in the list; Review opens
   by itself when it's done.
-- [ ] **One gear menu for settings:** store, TV size, autoplay, playlist name,
-  insert songs.
-- [ ] **One playlist status chip** ("🔥 AniSong MegaMix · 329 songs · synced
-  2 h ago") opening a single Sync/Import dialog, replacing the two separate
-  entry points.
+- [x] **One gear menu for settings:** ⚙ at the top left opens Settings, a
+  panel over the current page (AniList, Playlist, Shortcuts, Preferences,
+  Data). The review header's popover is gone.
+- [x] **One playlist status chip** in the header, with a popover (Open
+  playlist, Re-sync); re-sync lives in Settings › Playlist.
 - [ ] **Key legend in a `?` overlay** instead of inline text.
 - [x] **Picker:** a type-to-filter box (`/`), AniList cover thumbnails, song
   counts per show once known, and season grouping when sorted by date. Done

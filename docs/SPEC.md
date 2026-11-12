@@ -262,8 +262,11 @@ is the most exact duplicate source (§9.4).
       the shortcut…**), in watch order. The export format is a small option
       (Shortcut, Text + links, JSON).
    3. **Did they land?** **Yes, mark as added** records the batch in the add
-      log (so it's never exported again) and shows **Session done**, with
-      Undo. **Not yet** leaves everything as it is.
+      log (so it's never exported again), appends it to the playlist
+      library, makes the batch's newest show the **last show added** (so the
+      next session's default starts after it), and shows **Session done**,
+      with Undo (which reverts all of that). **Not yet** leaves everything as
+      it is.
 
 ## 6. Shortcuts
 

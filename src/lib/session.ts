@@ -110,6 +110,8 @@ export interface RecordedBatch {
   anyway?: string[];
   /** "Last show added" before this batch moved it forward; Undo puts it back. */
   prevBound?: number | null;
+  /** The anime selection before this batch reset it; Undo restores it. */
+  prevSelection?: unknown;
 }
 
 export interface SessionState {

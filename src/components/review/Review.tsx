@@ -36,8 +36,8 @@ interface Props {
   onSettings: (patch: { country?: string; preferTvSize?: boolean; autoplay?: boolean; playlistName?: string }) => void;
   onBack: () => void;
   onNewSession: () => void;
-  onAdded?: (anilistIds: number[]) => number | null | undefined;
-  onAddedUndone?: (prevBound: number | null) => void;
+  onAdded?: (anilistIds: number[]) => { prevBound: number | null; prevSelection: unknown } | undefined;
+  onAddedUndone?: (prevBound: number | null, prevSelection: unknown) => void;
 }
 
 const VIEW_KEY = 'anisong-curator.queueView';

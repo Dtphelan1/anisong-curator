@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchViewerName } from './lib/anilist';
 import { db, themeCache } from './lib/db';
 import { orderShows } from './lib/ordering';
-import { selectedShows, selectNewer, selectNone, setShows } from './lib/selection';
+import { selectedShows, selectNewer, selectNone, setShows, type Selection } from './lib/selection';
 import { isSetupComplete, nextSetupStep, SETUP_STEPS, useSettings, type SetupStep, type StepState } from './lib/settings';
 import { resolveThemes, sortThemes } from './lib/themes';
 import { cachedSongCounts } from './lib/songCounts';
@@ -163,7 +163,7 @@ export function App() {
       const ia = idx.get(a)!, ib = idx.get(b)!;
       return settings.order.direction === 'desc' ? (ib < ia ? b : a) : (ib > ia ? b : a);
     });
-    const prev = settings.boundId;
+    const prev = { prevBound: settings.boundId, prevSelection: settings.selection };
     update({ boundId: newest, selection: selectNewer() });
     return prev;
   };
@@ -217,7 +217,7 @@ export function App() {
         <Review
           items={reviewItems} country={settings.country} prefs={prefs} autoplay={settings.autoplay}
           playlistName={settings.playlistName} snapshot={snapshot} onSnapshot={() => undefined} onSettings={update}
-          onAdded={onAdded} onAddedUndone={(prevBound) => update({ boundId: prevBound, selection: selectNewer() })}
+          onAdded={onAdded} onAddedUndone={(prevBound, prevSelection) => update({ boundId: prevBound, selection: (prevSelection as Selection | undefined) ?? selectNewer() })}
           onBack={() => { setLookup(null); navigate({ page: { name: 'anime' } }); }}
           onNewSession={() => { setLookup(null); navigate({ page: { name: 'anime' } }); }}
         />
