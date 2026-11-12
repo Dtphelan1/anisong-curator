@@ -9,6 +9,10 @@
  * 2. **Pasted rows** — ⌘C on selected songs. No header; the columns are
  *    whatever the list view shows (typically Name, Time, Artist, Album, …)
  *    with Time as m:ss. The mapping is guessed and reported as such.
+ * 3. **Shortcut text** — what the read-only "Anisong Export Playlist" iPhone
+ *    shortcut copies: an `anisong-playlist v1` line, the playlist name, then
+ *    parallel `---titles---` / `---artists---` / `---durations---` lists.
+ *    Row order is not guaranteed to be playlist order (`ordered: false`).
  */
 
 export interface PlaylistRow {
@@ -26,7 +30,7 @@ export type ColumnMapping = Record<ColumnField, number | null>;
 export interface ParseResult {
   rows: PlaylistRow[];
   warnings: string[];
-  format: 'export' | 'pasted' | 'empty';
+  format: 'export' | 'pasted' | 'shortcut' | 'empty';
   /** True when columns were inferred from the data rather than a header. */
   guessed: boolean;
   /** Column index per field (0-based), null when not found. */
@@ -35,6 +39,14 @@ export interface ParseResult {
   header: string[] | null;
   /** Detected text encoding (for byte input). */
   encoding: string;
+  /** Playlist name, when the input names it (shortcut text). */
+  playlistName: string | null;
+  /** Rows are in playlist order (false for shortcut text: unverified). */
+  ordered: boolean;
+  /** Artists line up with titles. False when the shortcut's lists disagree in length. */
+  artistsKnown: boolean;
+  /** Set when the rows look sorted by a column (so `ordered` is false). */
+  sortedBy?: SortDetection | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -109,11 +121,12 @@ function headerMapping(cells: string[]): { mapping: ColumnMapping; known: number
   return null;
 }
 
-/** "3:58" / "1:02:03" → ms. */
+/** "3:58" / "1:02:03" / "3:58.4" → ms. */
 function parseClock(s: string): number | null {
-  const m = s.trim().match(/^(?:(\d+):)?(\d{1,3}):(\d{2})$/);
+  const m = s.trim().match(/^(?:(\d+):)?(\d{1,3}):(\d{2})(?:[.,](\d+))?$/);
   if (!m) return null;
-  return ((Number(m[1] ?? 0) * 60 + Number(m[2])) * 60 + Number(m[3])) * 1000;
+  const frac = m[4] ? Number(`0.${m[4]}`) : 0;
+  return Math.round(((Number(m[1] ?? 0) * 60 + Number(m[2])) * 60 + Number(m[3]) + frac) * 1000);
 }
 
 /** Export: whole seconds ("238"), sometimes m:ss. */
@@ -182,11 +195,16 @@ function guessMapping(rows: string[][]): { mapping: ColumnMapping; notes: string
 
 const LINE = /\r\n|\r|\n/;
 
-/** Parse an export file (bytes) or pasted text. */
+/** Parse an export file (bytes), pasted rows, or the Export Playlist shortcut's text. */
 export function parsePlaylist(input: string | ArrayBuffer | Uint8Array): ParseResult {
-  const { text, encoding } = typeof input === 'string' ? { text: input, encoding: 'text' } : decodeBytes(input);
-  const lines = text.replace(/^﻿/, '').split(LINE).filter((l) => l.replace(/\t/g, '').trim() !== '');
-  const empty: ParseResult = { rows: [], warnings: [], format: 'empty', guessed: false, mapping: { title: null, artist: null, album: null, time: null }, header: null, encoding };
+  const { text: raw, encoding } = typeof input === 'string' ? { text: input, encoding: 'text' } : decodeBytes(input);
+  const text = raw.replace(/^\uFEFF/, '');
+  if (SHORTCUT_MAGIC.test(text)) return parseShortcutText(text, encoding);
+  const lines = text.split(LINE).filter((l) => l.replace(/\t/g, '').trim() !== '');
+  const empty: ParseResult = {
+    rows: [], warnings: [], format: 'empty', guessed: false, mapping: { title: null, artist: null, album: null, time: null }, header: null, encoding,
+    playlistName: null, ordered: true, artistsKnown: true,
+  };
   if (!lines.length) return { ...empty, warnings: ['Nothing to import.'] };
 
   const table = lines.map((l) => l.split('\t'));
@@ -228,9 +246,11 @@ export function parsePlaylist(input: string | ArrayBuffer | Uint8Array): ParseRe
   const cell = (r: string[], i: number | null) => (i === null ? '' : (r[i] ?? '').trim());
   const rows: PlaylistRow[] = [];
   let skipped = 0, shortRows = 0;
-  const width = head ? table[0]!.length : 0;
+  // Music.app drops trailing empty cells (e.g. Location, which streaming
+  // tracks don't have): only a row missing a column we read is "short".
+  const used = Math.max(-1, ...Object.values(mapping).filter((c): c is number => c !== null));
   for (const r of body) {
-    if (head && r.length < width) shortRows++;
+    if (head && r.length <= used) shortRows++;
     const title = cell(r, mapping.title);
     if (!title) { skipped++; continue; }
     rows.push({
@@ -243,12 +263,178 @@ export function parsePlaylist(input: string | ArrayBuffer | Uint8Array): ParseRe
     });
   }
   if (skipped) warnings.push(`Skipped ${skipped} row${skipped === 1 ? '' : 's'} with no title.`);
-  if (shortRows) warnings.push(`${shortRows} row${shortRows === 1 ? ' has' : 's have'} fewer columns than the header; missing cells were left empty.`);
+  if (shortRows) warnings.push(`${shortRows} row${shortRows === 1 ? ' is' : 's are'} missing the Name, Artist, Album or Time cell; missing cells were left empty.`);
   if (mapping.time !== null && rows.length) {
     const bad = rows.filter((r) => r.durationMs === null).length;
     if (bad / rows.length > 0.2) warnings.push(`${bad} of ${rows.length} rows have no readable duration.`);
   }
-  return { rows, warnings, format, guessed, mapping, header: head ? table[0]!.map((c) => c.trim()) : null, encoding };
+  const sorted = detectSort(rows);
+  if (sorted) {
+    const field = { title: 'Name', artist: 'Artist', album: 'Album' }[sorted.field];
+    warnings.push(
+      `This ${format === 'export' ? 'export' : 'list'} is sorted by ${field} (${sorted.direction === 'asc' ? 'A→Z' : 'Z→A'}), not in playlist order. ` +
+      "Duplicate checks still work; to get a 'last show' suggestion, set Music → View → Sort By → Playlist Order, then export again.",
+    );
+  }
+  return {
+    rows, warnings, format, guessed, mapping, header: head ? table[0]!.map((c) => c.trim()) : null, encoding,
+    playlistName: null, ordered: !sorted, artistsKnown: true, sortedBy: sorted,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Sort detection                                                      */
+/* ------------------------------------------------------------------ */
+
+export interface SortDetection {
+  field: 'title' | 'artist' | 'album';
+  direction: 'asc' | 'desc';
+  /** Share of the field's changing adjacent pairs that go this way. */
+  share: number;
+}
+
+/** Below this many rows, a run of sorted names is as likely to be chance. */
+const SORT_MIN_ROWS = 12;
+export const SORT_SHARE = 0.9;
+const collator = new Intl.Collator('en', { sensitivity: 'base', numeric: true });
+
+/**
+ * Music.app exports (and ⌘C copies) rows in the window's current sort, not
+ * playlist order. If ≥ 90% of adjacent pairs run one way by Name, Artist or
+ * Album, the "tail" is meaningless. Equal neighbours (an album's songs in a
+ * row) are skipped; the field must still change between enough pairs.
+ */
+export function detectSort(rows: Pick<PlaylistRow, 'title' | 'artist' | 'album'>[]): SortDetection | null {
+  if (rows.length < SORT_MIN_ROWS) return null;
+  const pairs = rows.length - 1;
+  let best: SortDetection | null = null;
+  for (const field of ['title', 'artist', 'album'] as const) {
+    let up = 0, down = 0;
+    for (let i = 1; i < rows.length; i++) {
+      const a = rows[i - 1]![field], b = rows[i]![field];
+      if (!a || !b) continue;
+      const c = collator.compare(a, b);
+      if (c < 0) up++;
+      else if (c > 0) down++;
+    }
+    const changing = up + down;
+    if (changing < Math.max(8, pairs * 0.2)) continue;
+    const share = Math.max(up, down) / changing;
+    if (share >= SORT_SHARE && (!best || share > best.share)) best = { field, direction: up >= down ? 'asc' : 'desc', share };
+  }
+  return best;
+}
+
+/* ------------------------------------------------------------------ */
+/* Shortcut text ("Anisong Export Playlist")                           */
+/* ------------------------------------------------------------------ */
+
+/** First non-blank line: `anisong-playlist v1`. */
+const SHORTCUT_MAGIC = /^\s*anisong-playlist\s+v(\d+)[ \t]*(?:\r\n|\r|\n|$)/i;
+const SECTION = /^\s*-{2,}\s*([a-z]+)\s*-{2,}\s*$/i;
+type Section = 'titles' | 'artists' | 'durations';
+const SECTIONS: Section[] = ['titles', 'artists', 'durations'];
+
+/**
+ * Parallel lists, one item per line, in the same order:
+ *
+ *     anisong-playlist v1
+ *     🔥 AniSong MegaMix
+ *     ---titles---
+ *     Gurenge
+ *     ---artists---
+ *     LiSA
+ *     ---durations---
+ *     238
+ *
+ * Blank lines inside a section are kept as empty entries (dropping them would
+ * shift every later item onto the wrong song); blank lines at the end of a
+ * section are separators. If a list's length disagrees with the titles it is
+ * not zipped by index: artists (or durations) are dropped for the whole
+ * snapshot, with a warning.
+ */
+function parseShortcutText(text: string, encoding: string): ParseResult {
+  const lines = text.split(LINE);
+  const warnings: string[] = [];
+  let i = lines.findIndex((l) => l.trim() !== '');
+  const version = Number(lines[i]!.match(/v(\d+)/i)![1]);
+  if (version !== 1) warnings.push(`Unknown format version v${version}; reading it as v1.`);
+  i++;
+
+  // The name is the next line, unless a section starts right away.
+  let playlistName: string | null = null;
+  if (i < lines.length && !SECTION.test(lines[i]!)) {
+    playlistName = lines[i]!.trim() || null;
+    i++;
+  }
+
+  const lists: Partial<Record<Section, string[]>> = {};
+  let current: string[] | null = null;
+  let stray = 0;
+  for (; i < lines.length; i++) {
+    const line = lines[i]!;
+    const m = line.match(SECTION);
+    if (m) {
+      const name = m[1]!.toLowerCase() as Section;
+      if (SECTIONS.includes(name)) {
+        if (lists[name]) warnings.push(`The "${name}" section appears twice; using the first.`);
+        current = lists[name] ? [] : (lists[name] = []);
+      } else {
+        warnings.push(`Ignored an unknown section "${m[1]}".`);
+        current = [];
+      }
+      continue;
+    }
+    if (current) current.push(line.trim());
+    else if (line.trim()) stray++;
+  }
+  if (stray) warnings.push(`Ignored ${stray} line${stray === 1 ? '' : 's'} before the first section.`);
+  for (const l of Object.values(lists)) while (l.length && l[l.length - 1] === '') l.pop();
+
+  const titles = lists.titles ?? [];
+  const mapping: ColumnMapping = { title: 0, artist: null, album: null, time: null };
+  const base = { format: 'shortcut' as const, guessed: false, header: null, encoding, playlistName, ordered: false };
+  if (!lists.titles) {
+    warnings.push('No ---titles--- section found.');
+    return { ...base, rows: [], warnings, mapping, artistsKnown: false };
+  }
+  if (!titles.length) warnings.push('The playlist is empty.');
+
+  let artists: string[] | null = lists.artists ?? null;
+  if (!artists || !artists.length) {
+    if (titles.length) warnings.push('No artists: songs will be matched on title alone, which is much weaker.');
+    artists = null;
+  } else if (artists.length !== titles.length) {
+    warnings.push(`${titles.length} titles but ${artists.length} artists: the lists don't line up, so artists are ignored for this snapshot and songs are matched on title alone. Check the shortcut.`);
+    artists = null;
+  }
+
+  let durations: string[] | null = lists.durations ?? null;
+  if (!durations || !durations.length) {
+    if (titles.length) warnings.push('No durations: duplicate checks use title + artist only.');
+    durations = null;
+  } else if (durations.length !== titles.length) {
+    warnings.push(`${titles.length} titles but ${durations.length} durations: the lists don't line up, so durations are ignored for this snapshot.`);
+    durations = null;
+  }
+
+  const rows: PlaylistRow[] = titles.map((title, k) => ({
+    position: k + 1,
+    title,
+    artist: artists ? artists[k]! : '',
+    album: '',
+    durationMs: durations ? parseDuration(durations[k]!.replace(/\s*(?:s|sec|secs|seconds)$/i, '')) : null,
+  }));
+
+  const untitled = rows.filter((r) => !r.title).length;
+  if (untitled) warnings.push(`${untitled} song${untitled === 1 ? ' has' : 's have'} no title; kept as blank rows so the lists stay aligned.`);
+  if (durations && rows.length) {
+    const bad = rows.filter((r) => r.durationMs === null).length;
+    if (bad / rows.length > 0.2) warnings.push(`${bad} of ${rows.length} rows have no readable duration.`);
+  }
+  if (artists) mapping.artist = 1;
+  if (durations) mapping.time = 2;
+  return { ...base, rows, warnings, mapping, artistsKnown: !!artists };
 }
 
 /** Human-readable summary of a guessed mapping, e.g. "Name = column 1, Time = column 2, …". */
