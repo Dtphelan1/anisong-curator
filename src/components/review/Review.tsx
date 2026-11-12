@@ -92,7 +92,7 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
       const t = chosenTrack(matches.get(it.key));
       if (!t) continue;
       const hit = checkSources(
-        withStoreName({ trackId: t.trackId, title: t.trackName, artist: t.artistName, durationMs: t.trackTimeMillis, ...themeNames(it.theme) }, storeNames.get(t.trackId)),
+        withStoreName({ key: it.key, trackId: t.trackId, title: t.trackName, artist: t.artistName, durationMs: t.trackTimeMillis, ...themeNames(it.theme) }, storeNames.get(t.trackId)),
         { playlist, added, addedIndex },
       );
       if (hit) m.set(it.key, hit);

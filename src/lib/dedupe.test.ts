@@ -287,3 +287,31 @@ describe('shortcutLine', () => {
   });
 });
 
+describe('theme-level hits (playlist library links)', () => {
+  const linked = (title: string, artist: string, durationMs: number, keys: string[]): PlaylistRow => ({ ...row(title, artist, durationMs), themeKeys: keys });
+
+  it('a row linked to the same OP/ED is likely in the playlist, even when the names share nothing', () => {
+    const idx = indexRows([linked('Yuusha', 'YOASOBI', 194_000, ['song:42'])]);
+    const q: DupQuery = { key: 'song:42', title: 'The Brave', artist: 'YOASOBI (English ver.)', durationMs: 195_000 };
+    expect(findDuplicate(idx, q)).toMatchObject({ tier: 'likely-duplicate', via: 'theme' });
+    // Without the key the names alone don't meet.
+    expect(findDuplicate(idx, { ...q, key: undefined })).toBeNull();
+  });
+
+  it('same OP/ED in another cut is another version; a stronger name match still wins', () => {
+    const idx = indexRows([linked('Yuusha (TV Size)', 'YOASOBI', 90_000, ['song:42'])]);
+    expect(findDuplicate(idx, { key: 'song:42', title: 'Brave', artist: 'X', durationMs: 194_000 })).toMatchObject({ tier: 'other-version', via: 'theme' });
+    const idx2 = indexRows([linked('Yuusha', 'YOASOBI', 194_000, ['song:42'])]);
+    expect(findDuplicate(idx2, { key: 'song:42', title: 'Yuusha', artist: 'YOASOBI', durationMs: 194_000 })).toMatchObject({ tier: 'duplicate', via: 'names' });
+  });
+
+  it('the export plan holds it back and says why; the add log carries its keys too', () => {
+    const playlist = indexRows([linked('勇者', 'YOASOBI', 194_000, ['song:42'])]);
+    const plan = planExport([item({ key: 'song:42', trackId: 5, title: 'Yuusha', artist: 'YOASOBI', durationMs: 194_000 })], { playlist });
+    expect(plan.held[0]).toMatchObject({ reason: 'likely-in-playlist' });
+    expect(plan.held[0]!.detail).toContain('linked to this song');
+    const fromLog = checkSources({ key: 'song:42', title: 'Brave', artist: 'Z', durationMs: 194_000, trackId: 6 }, { added: [added({ trackId: 9, title: '勇者', key: 'song:42', durationMs: 194_000 })] });
+    expect(fromLog).toMatchObject({ source: 'added', via: 'theme' });
+  });
+});
+

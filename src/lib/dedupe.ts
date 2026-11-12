@@ -130,6 +130,8 @@ interface PreparedRow {
 
 export interface DupIndex {
   rows: PreparedRow[];
+  /** themeKey → rows linked to it (playlist library links, add-log keys). */
+  byTheme: Map<string, { row: PlaylistRow; cut: string }[]>;
   /** bigram of the compact core title → [row index, count] pairs, flattened. */
   postings: Map<string, number[]>;
   /** False when the snapshot's artists can't be trusted (mismatched shortcut lists). */
@@ -141,7 +143,9 @@ export interface DupIndex {
 export function indexRows(rows: PlaylistRow[], { artistsKnown = true }: { artistsKnown?: boolean } = {}): DupIndex {
   const prepared: PreparedRow[] = [];
   const postings = new Map<string, number[]>();
+  const byTheme = new Map<string, { row: PlaylistRow; cut: string }[]>();
   for (const row of rows) {
+    for (const k of row.themeKeys ?? []) byTheme.set(k, [...(byTheme.get(k) ?? []), { row, cut: cutFlags(row.title) }]);
     const core = coreTitle(row.title);
     if (!compact(core)) continue;
     const g = grams(core);
@@ -149,11 +153,13 @@ export function indexRows(rows: PlaylistRow[], { artistsKnown = true }: { artist
     prepared.push({ row, core, grams: g.total, artists: prepareArtists(artistsKnown && row.artist ? [row.artist] : []), cut: cutFlags(row.title) });
     for (const [gram, n] of g.counts) { const p = postings.get(gram); p ? p.push(i, n) : postings.set(gram, [i, n]); }
   }
-  return { rows: prepared, postings, artistsKnown, size: rows.length };
+  return { rows: prepared, postings, byTheme, artistsKnown, size: rows.length };
 }
 
 /** What we know about a song to check. */
 export interface DupQuery {
+  /** themeKey of the song, for the theme-level check (a row linked to the same OP/ED). */
+  key?: string;
   title: string;
   artist: string;
   durationMs: number | null;
@@ -170,6 +176,8 @@ export interface DupMatch {
   /** null: unknown (no artist on one side). */
   artistSim: number | null;
   durationDeltaMs: number | null;
+  /** names: title/artist similarity · theme: the row is linked to the same OP/ED (the names may share nothing). */
+  via?: 'names' | 'theme';
 }
 
 /** No tier is possible below this title similarity. */
@@ -192,6 +200,7 @@ export function classify(titleSim: number, artistSim: number | null, durationDel
 
 /** Prepared query, reusable across indexes. */
 interface PreparedQuery {
+  key?: string;
   cores: string[];
   grams: Grams[];
   artists: PreparedArtists;
@@ -205,6 +214,7 @@ function prepareQuery(q: DupQuery): PreparedQuery {
   // a cover ('Again (From "…")', karaoke) is by someone else: use its own artist only.
   const isCover = trackFlags({ trackName: q.title, collectionName: '' }).some((f) => f === 'cover' || f === 'karaoke');
   return {
+    key: q.key,
     cores,
     grams: cores.map(grams),
     artists: prepareArtists([q.artist, ...(isCover ? [] : q.altArtists ?? [])].filter(Boolean)),
@@ -257,7 +267,18 @@ function findPrepared(idx: DupIndex, q: PreparedQuery): DupMatch | null {
     if (!tier) continue;
     const dur = durationDeltaMs === null ? 0.5 : durationDeltaMs <= DUP.sameDurationMs ? 1 : 0;
     const score = 0.6 * titleSim + 0.3 * (artistSim ?? 0.5) + 0.1 * dur;
-    const m: DupMatch = { row: r.row, tier, score: Math.round(score * 1000) / 1000, titleSim, artistSim, durationDeltaMs };
+    const m: DupMatch = { row: r.row, tier, score: Math.round(score * 1000) / 1000, titleSim, artistSim, durationDeltaMs, via: 'names' };
+    if (better(best, m)) best = m;
+  }
+  // Theme level: a row linked to the same OP/ED is at least likely the same
+  // song, even when its name is a translation; another cut is another version.
+  for (const t of (q.key && idx.byTheme.get(q.key)) || []) {
+    const durationDeltaMs = q.durationMs !== null && t.row.durationMs !== null ? Math.abs(q.durationMs - t.row.durationMs) : null;
+    const otherCut = q.cut !== t.cut || (durationDeltaMs !== null && durationDeltaMs >= DUP.otherCutMs);
+    const m: DupMatch = {
+      row: t.row, tier: otherCut ? 'other-version' : 'likely-duplicate', score: otherCut ? 0.7 : 0.85,
+      titleSim: 0, artistSim: null, durationDeltaMs, via: 'theme',
+    };
     if (better(best, m)) best = m;
   }
   return best;
@@ -291,7 +312,7 @@ export function withStoreName<T extends { altTitles?: string[]; altArtists?: str
 
 /** Add-log records as playlist rows, so the same matcher covers both sources. */
 export function addedAsRows(added: AddedRecord[]): PlaylistRow[] {
-  return added.map((a, i) => ({ position: i + 1, title: a.title, artist: a.artist, album: '', durationMs: a.durationMs }));
+  return added.map((a, i) => ({ position: i + 1, title: a.title, artist: a.artist, album: '', durationMs: a.durationMs, themeKeys: a.key ? [a.key] : [] }));
 }
 
 export interface DupSources {
@@ -357,7 +378,9 @@ const describe = (r: { title: string; artist: string }) => (r.artist ? `${r.titl
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
 function holdFor(hit: DupHit): Omit<Held, 'item' | 'overridable'> {
-  const why = hit.sameTrack ? 'same track' : `${hit.tier === 'duplicate' ? '' : `${hit.tier === 'other-version' ? 'other version' : 'likely'}, `}${pct(hit.score)}`;
+  const why = hit.sameTrack ? 'same track'
+    : hit.via === 'theme' ? `linked to this song${hit.tier === 'other-version' ? ', other version' : ''}`
+    : `${hit.tier === 'duplicate' ? '' : `${hit.tier === 'other-version' ? 'other version' : 'likely'}, `}${pct(hit.score)}`;
   if (hit.source === 'added') {
     return hit.tier === 'other-version'
       ? { reason: 'other-version', detail: `added earlier: ${describe(hit.row)} (${why})`, hit }
