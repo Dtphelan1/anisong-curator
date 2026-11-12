@@ -144,3 +144,41 @@ real-world case.
 If none of these work, the app falls back to the **manual link checklist**
 (SPEC §6.2), and Read Tail is still used to verify the result and catch
 duplicates. That's a fine outcome for the spike. It just changes M4.
+
+---
+
+## 4. `Anisong Add Kept`: add the app's kept list to a playlist
+
+This is the shortcut the app's **Kept** section is built for. In the app, pick
+**Links (Shortcut)**, press **Copy** (or **Share…** on a secure origin), then
+run this shortcut. It accepts any text containing `music.apple.com` links, so
+the **Text + links** format works too. Songs are added in the order the links
+appear.
+
+Actions:
+1. *Receive **Text** input from **Share Sheet***; *If there's no input*:
+   **Get Clipboard**.
+2. **Get URLs from Input** (*Shortcut Input*). This extracts every link, in order.
+3. **Count** *Items* in *URLs*. **If** *Count* *is* `0`: **Show Alert**
+   "No Apple Music links found", then **Stop This Shortcut**. **End If**.
+4. **Choose from Menu** with the prompt "Add *Count* songs to…":
+   - **My playlist**: **Repeat with Each** *URL* → **Add to Playlist**
+     *‹your playlist›* → **End Repeat**.
+   - **New staging playlist**: **Create Playlist** named
+     `anisong-curator ` + *Current Date* (short), with items *URLs*.
+5. **Show Notification** "Added *Count* songs".
+
+Siri prompt (paste or dictate):
+
+> Make a shortcut called "Anisong Add Kept" that takes text from the share
+> sheet or, if there's no input, from the clipboard. Get all the URLs from that
+> text. If there are none, show an alert saying "No Apple Music links found"
+> and stop. Otherwise ask me with a menu whether to add them to my playlist
+> "‹playlist name›" or to a new playlist named "anisong-curator" plus today's
+> date. For my playlist, add each URL to the playlist one at a time, in order.
+> For a new playlist, create it with all the URLs. Finish with a notification
+> saying how many songs were added.
+
+This doubles as spike 1. If **Add to Playlist** refuses the links or adds
+nothing, note the exact error. That decides whether adding can be automated
+or falls back to opening each link and tapping **+**.

@@ -90,3 +90,10 @@ table.tail-map tr.unmatched td { opacity: 0.6; }
 table.tail-map tr.bound { background: var(--bound); }
 .badge.suggested { color: var(--accent); border-color: currentColor; }
 .badge.in-playlist { color: var(--ok); border-color: currentColor; }
+
+/* Kept-list export */
+.segmented { display: inline-flex; border: 1px solid var(--accent); border-radius: 6px; overflow: hidden; }
+.segmented button { border: 0; border-radius: 0; background: transparent; color: var(--accent); }
+.segmented button + button { border-left: 1px solid var(--accent); }
+.segmented button.on { background: var(--accent); color: var(--accent-fg); box-shadow: none; }
+textarea.export { width: 100%; margin-top: 8px; font: 12px ui-monospace, monospace; padding: 6px 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--fg); resize: vertical; }

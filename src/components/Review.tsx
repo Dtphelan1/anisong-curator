@@ -335,10 +335,22 @@ function Queue({ items, index, onPick, matches, status, decisions, inPlaylist }:
   );
 }
 
+type ExportFormat = 'links' | 'text' | 'json';
+const EXPORT_KEY = 'anisong-curator.exportFormat';
+const EXPORT_FORMATS: { value: ExportFormat; label: string; hint: string }[] = [
+  { value: 'links', label: 'Links (Shortcut)', hint: 'One Apple Music link per line: what the Add Kept shortcut expects' },
+  { value: 'text', label: 'Text + links', hint: 'Readable: song, artist, show, then the link' },
+  { value: 'json', label: 'JSON', hint: '{country, ids}: for the spike Add Tracks shortcut' },
+];
+
 function KeptSummary({ items, matches, decisions, country }: {
   items: ReviewItem[]; matches: Map<string, MatchResult>; decisions: Map<string, { decision: DecisionValue; trackId: number | null }>; country: string;
 }) {
-  const [copied, setCopied] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [format, setFormatState] = useState<ExportFormat>(() => {
+    try { const v = localStorage.getItem(EXPORT_KEY); return EXPORT_FORMATS.some((f) => f.value === v) ? (v as ExportFormat) : 'links'; } catch { return 'links'; }
+  });
+  const setFormat = (f: ExportFormat) => { setFormatState(f); try { localStorage.setItem(EXPORT_KEY, f); } catch { /* private mode */ } };
   const kept = items.flatMap((it) => {
     const d = decisions.get(it.key);
     if (d?.decision !== 'keep' || !d.trackId) return [];
@@ -347,21 +359,39 @@ function KeptSummary({ items, matches, decisions, country }: {
   });
   if (!kept.length) return null;
 
-  const asText = kept.map(({ it, trackId, track }) =>
-    `${track?.trackName ?? it.theme.songTitle} — ${track?.artistName ?? it.theme.artists.join(', ')} (${displayTitle(it.show)} ${it.theme.slug}) ${songUrl(trackId, country)}`).join('\n');
-  const asJson = JSON.stringify({ country, ids: kept.map((k) => k.trackId) });
-  const copy = async (label: string, text: string) => {
-    try { await navigator.clipboard.writeText(text); setCopied(label); setTimeout(() => setCopied(null), 1500); } catch { prompt('Copy:', text); }
+  const lines = kept.map(({ it, trackId, track }) => ({
+    url: songUrl(trackId, country),
+    text: `${track?.trackName ?? it.theme.songTitle} — ${track?.artistName ?? it.theme.artists.join(', ')} (${displayTitle(it.show)} ${it.theme.slug})`,
+  }));
+  const output =
+    format === 'links' ? lines.map((l) => l.url).join('\n')
+    : format === 'text' ? lines.map((l) => `${l.text} ${l.url}`).join('\n')
+    : JSON.stringify({ country, ids: kept.map((k) => k.trackId) });
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(output); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { prompt('Copy:', output); }
   };
+  const canShare = typeof navigator !== 'undefined' && 'share' in navigator && window.isSecureContext;
+  const share = async () => { try { await navigator.share({ text: output }); } catch { /* cancelled */ } };
 
   return (
     <section className="card">
       <h2>Kept ({kept.length})</h2>
-      <p className="muted">In playlist order (oldest show first). Adding to Apple Music comes in M4; for now copy the list.</p>
+      <p className="muted">
+        In playlist order (oldest show first). Copy the list, then run the <strong>Anisong Add Kept</strong> shortcut
+        (see <code>shortcuts/README.md</code>); it adds the songs in this order.
+      </p>
       <div className="row">
-        <button onClick={() => copy('text', asText)}>{copied === 'text' ? 'Copied ✓' : 'Copy as text + links'}</button>
-        <button className="secondary" onClick={() => copy('json', asJson)}>{copied === 'json' ? 'Copied ✓' : 'Copy track IDs (for the Shortcut)'}</button>
+        <div className="segmented" role="radiogroup" aria-label="Export format">
+          {EXPORT_FORMATS.map((f) => (
+            <button key={f.value} role="radio" aria-checked={format === f.value} className={format === f.value ? 'on' : ''} onClick={() => setFormat(f.value)} title={f.hint}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <button onClick={copy}>{copied ? 'Copied ✓' : 'Copy'}</button>
+        {canShare && <button className="secondary" onClick={share} title="Share sheet: pick the shortcut directly">Share…</button>}
       </div>
+      <textarea className="export" readOnly value={output} rows={Math.min(8, Math.max(2, lines.length))} onFocus={(e) => e.currentTarget.select()} />
       <ol className="kept">
         {kept.map(({ it, trackId, track }) => (
           <li key={it.key}>
