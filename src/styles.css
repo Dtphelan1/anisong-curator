@@ -120,9 +120,6 @@ details.held li { margin: 3px 0; }
 .badge.have-duplicate { background: var(--have); color: var(--have-fg); border-color: var(--have); font-weight: 600; }
 .badge.have-other-version { border-style: dashed; }
 .have-text { color: var(--have); font-weight: 600; }
-.have-banner { margin: 6px 0 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--have); border-left-width: 5px; background: var(--have-bg); }
-.have-banner strong { color: var(--have); }
-.have-banner.have-other-version { border-style: dashed; border-left-style: solid; }
 .match.have-frame { border-color: var(--have); box-shadow: inset 4px 0 0 var(--have); background: var(--have-bg); }
 button.have-btn { border-color: var(--have); }
 button.have-btn:not(.secondary) { background: var(--have); color: var(--have-fg); }

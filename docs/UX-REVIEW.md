@@ -50,6 +50,9 @@ batches by priority. Tick them off as they ship; add new findings at the end.
 - [x] **Prev / Next moved above the queue,** with the position ("3 of 12",
   plus the total when filtered). It owns the ←/→ keys, so the action row holds
   decisions only.
+- [x] **No "Already in your playlist" banner on the card:** it appeared and
+  disappeared between songs, shifting the layout. The violet frame, the badge
+  (hover for the matched row) and the Hold back / Add anyway buttons carry it.
 - [x] **Bug: a failed search showed "Queued for matching…" forever.** The card
   now shows "Search failed" with **Try again** and **Search YouTube**, and the
   queue labels it "search failed" (listed under No match).

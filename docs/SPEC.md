@@ -450,9 +450,10 @@ the export does.
 - **Every song is still reviewed;** nothing is hidden or skipped for you.
 - **One "already have" colour** (violet `--have`, distinct from the confidence
   and warning colours) marks it everywhere: the badge ("already in playlist" is
-  filled; "likely" is outlined; "other version" is dashed), a banner above the
-  match naming the matched playlist row and its score, and a tinted card frame.
-  In the queue, the badge alone marks it.
+  filled; "likely" is outlined; "other version" is dashed; hovering it names
+  the matched playlist row and its score) and a tinted card frame. There's no
+  banner: one that comes and goes moves the card around when flipping through
+  songs quickly. In the queue, the badge alone marks it.
 - **On such a song, Keep becomes "Hold back"** (`1`), and **Add anyway**
   (`⇧1`) overrides it. The override is stored on the decision
   (`addAnyway`), so the card, the queue and the Kept list agree and it survives

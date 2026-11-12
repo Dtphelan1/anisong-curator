@@ -213,7 +213,6 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
           <div>{item.theme.artists.join(', ') || <span className="muted">artist unknown</span>}</div>
         </div>
 
-        {have && chosen && <HaveBanner hit={have} addAnyway={decision?.decision === 'keep' && !!decision.addAnyway} />}
         <MatchView item={item} match={match} chosen={chosen} status={status.get(item.key)} error={errors.get(item.key)} audioRef={audio} inPlaylist={have} onRetry={() => rematch(item)} />
 
         <div className="row actions">
@@ -340,32 +339,6 @@ function InPlaylistBadge({ hit }: { hit?: DupHit }) {
   const where = hit.source === 'added' ? `Added by the app: ${name}` : `Playlist #${hit.row.position}: ${name}`;
   const label = hit.source === 'added' && hit.tier !== 'other-version' ? 'already added' : TIER_LABEL[hit.tier];
   return <span className={`badge have have-${hit.tier}`} title={`${where} (match ${Math.round(hit.score * 100)}%)`}>{label}</span>;
-}
-
-const HAVE_HEADLINE: Record<DupHit['tier'], string> = {
-  duplicate: 'Already in your playlist',
-  'likely-duplicate': 'Probably already in your playlist',
-  'other-version': 'Another version is in your playlist',
-};
-
-/** Shown above the match on the review card for a song you (probably) already have. */
-function HaveBanner({ hit, addAnyway }: { hit: DupHit; addAnyway: boolean }) {
-  const name = `${hit.row.title}${hit.row.artist ? ` — ${hit.row.artist}` : ''}`;
-  const where = hit.source === 'added' ? `added by the app: ${name}` : `#${hit.row.position}: ${name}`;
-  const exact = hit.sameTrack && hit.source === 'added';
-  return (
-    <div className={`have-banner have-${hit.tier}`} role="status">
-      <strong>{hit.source === 'added' && hit.tier !== 'other-version' ? 'Already added by the app' : HAVE_HEADLINE[hit.tier]}</strong>
-      <span className="muted"> · matches {where}{exact ? '' : ` (${Math.round(hit.score * 100)}%)`}</span>
-      <div className="small">
-        {addAnyway
-          ? 'You chose to add it anyway: it will be exported.'
-          : exact
-            ? 'Press 1 to hold it back from the export.'
-            : <>Press <kbd>1</kbd> to hold it back from the export, or <kbd>⇧1</kbd> to add it anyway.</>}
-      </div>
-    </div>
-  );
 }
 
 /** YouTube search for a song with no catalog match: title, artists, anime and OP/ED slug. Opens a separate window. */
