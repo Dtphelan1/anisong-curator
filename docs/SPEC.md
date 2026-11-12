@@ -380,7 +380,9 @@ are dimmed. The "last show added" is the quick way in, not the only one.
 - **No songs is normal for some formats.** Movies, specials, OVAs and shorts
   often have no OP/ED, or one theme song not listed as either. The songs step
   labels them by format ("Movie · no opening/ending listed", neutral) and
-  keeps the warning style for TV and ONA series. Music videos skip Jikan.
+  keeps the warning style for TV and ONA series. A show still airing gets
+  the neutral "airing · songs not listed yet" (rechecked weekly, as above).
+  Music videos skip Jikan.
 
 ### 9.2 Matching on a 20-requests-per-minute budget
 The old problems remain: romaji vs native script, TV size vs full, karaoke

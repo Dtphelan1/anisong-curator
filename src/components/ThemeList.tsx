@@ -62,7 +62,7 @@ export function ThemeList({ candidates, lookups, errors, progress, includeInsert
               {show.format && show.format !== 'TV' && <span className="muted"> · {formatLabel(show.format)}</span>}
               {l?.source === 'jikan' && <span className="badge warn" title="From MyAnimeList text; less reliable">MAL</span>}
               {!l && !err && running && <span className="muted"> …</span>}
-              {l?.status === 'none' && <NoSongs format={show.format} incomplete={l.incomplete} />}
+              {l?.status === 'none' && <NoSongs format={show.format} airing={!!show.airingStatus && show.airingStatus !== 'FINISHED'} incomplete={l.incomplete} />}
               {err && <span className="badge bad" title={err}>lookup failed</span>}
             </div>
             {themes.length > 0 && (
@@ -89,13 +89,21 @@ export function ThemeList({ candidates, lookups, errors, progress, includeInsert
   );
 }
 
-/** Why a show has no songs, worded by format: expected for a movie, notable for a series. */
-function NoSongs({ format, incomplete }: { format: string | null; incomplete?: string }) {
+/**
+ * Why a show has no songs, worded by format and airing state: expected for a
+ * movie or a show still airing (the databases lag by weeks), notable for a
+ * finished series.
+ */
+function NoSongs({ format, airing, incomplete }: { format: string | null; airing: boolean; incomplete?: string }) {
   const optional = songsOptional(format);
-  const text = optional ? 'no opening/ending listed' : 'no songs found';
+  const text = airing ? 'airing · songs not listed yet' : optional ? 'no opening/ending listed' : 'no songs found';
   const title = [
-    optional ? `${formatLabel(format)}s often have no opening or ending, or one theme song that isn't listed as one.` : 'Neither AnimeThemes nor MyAnimeList lists an opening or ending.',
+    airing
+      ? 'Song databases usually catch up a few weeks into a season. Rechecked weekly.'
+      : optional
+        ? `${formatLabel(format)}s often have no opening or ending, or one theme song that isn't listed as one.`
+        : 'Neither AnimeThemes nor MyAnimeList lists an opening or ending.',
     incomplete && `Only AnimeThemes was checked: ${incomplete}.`,
   ].filter(Boolean).join(' ');
-  return <span className={optional ? 'badge' : 'badge warn'} title={title}>{text}{incomplete && ' · MAL unchecked'}</span>;
+  return <span className={airing || optional ? 'badge' : 'badge warn'} title={title}>{text}{incomplete && ' · MAL unchecked'}</span>;
 }
