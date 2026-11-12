@@ -2,8 +2,14 @@
 
 The app talks to your Music library through three small shortcuts. Shortcuts
 can't be generated as files from this repo, so build them by hand once. It
-takes about 10 minutes. Build them on the Mac. They sync to your iPhone over
-iCloud, which lets spike 1 be tested on both.
+takes about 10 minutes. Build them on either the Mac or the iPhone. They sync
+over iCloud, which lets spike 1 be tested on both.
+
+**Quickest test first.** Spike 1 can be answered with a three-action
+shortcut that needs no input: **Text** (a `music.apple.com/us/song/<id>` link
+to a song *not* in your library) → **Get URLs from Input** → **Add to
+Playlist** (a throwaway playlist). If the song lands, the automatic add path
+works.
 
 Action names below are from Shortcuts on macOS 14 / iOS 17. If one has moved,
 search the action list for the quoted name. Each shortcut must be able to
@@ -12,6 +18,41 @@ receives input. If the first row reads *Receive [Any] input from [Nowhere]*,
 change it to *Receive **Text** input from **Quick Actions*** or similar. Any
 source works; what matters is that input is enabled. Set *If there's no input*
 to *Continue*.
+
+### Building on iPhone
+These shortcuts can be built entirely on iPhone. You can also describe them to
+Siri and let it draft them, then check the result against the steps below.
+The iPhone layout differs from the Mac's:
+- **Input settings** live in the shortcut's settings: tap the **ⓘ** or the
+  shortcut's name at the top, then **Details**. Turn on **Show in Share
+  Sheet**. That adds the *Receive … input* row at the top of the editor, along
+  with its *If there's no input* option.
+- **Show Result** isn't always offered on iPhone. Use **Quick Look** to
+  inspect a value while debugging.
+- A Siri-drafted shortcut may use different but equivalent actions. That's
+  fine as long as the input JSON goes in and the output JSON comes back out.
+- To run the spike page from the phone, serve it on your Mac and open
+  `http://<mac-lan-ip>:5173/` in iPhone Safari (see `spike/README.md`). The
+  page's links then launch the shortcuts on the phone.
+
+These labels are from memory of recent iOS versions and may have moved. If
+something differs, note it in the spike page's notes field.
+
+### Running with no input
+A shortcut **never prompts** for Shortcut Input. Run from the editor with ▶,
+its input is simply empty, so *Get Dictionary from Shortcut Input* has nothing
+to parse. Input only arrives from a caller: the spike page's link, the Share
+Sheet, or another shortcut. To test in the editor, either:
+- set *If there's no input* to **Get Clipboard**, then copy test JSON (for
+  example `{"playlist":"My Playlist","n":5}`) before pressing ▶; or
+- temporarily put a **Text** action holding test JSON at the top, and point
+  *Get Dictionary from* at it.
+
+### Names
+Each name typed into the spike page must match the shortcut's name exactly.
+The names below contain a middle dot (`·`), which is easy to mistype. Plain
+names like `Anisong Echo` are safer; just type the same names into the
+page's three name fields.
 
 Every shortcut ends with **Stop and Output**, with *If there's nowhere to
 output* set to **Copy to Clipboard**. When launched from the spike page, the
