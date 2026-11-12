@@ -61,6 +61,15 @@
   <div id="it-out" class="muted">Tip: click a theme row in section 2 to fill the search term.</div>
 </section>
 
+<!-- 3b. Network diagnostics -->
+<section id="diag">
+  <h2>3b · Network diagnostics</h2>
+  <p class="muted">Runs each probe once (about 8 requests, under 15 s) and shows exactly how each one fails. Use it on the device where search fails, then copy the result.</p>
+  <button id="dg-run">Run diagnostics</button>
+  <button class="secondary" id="dg-copy">Copy diagnostics</button>
+  <div id="dg-out"></div>
+</section>
+
 <!-- 4. Shortcuts bridge -->
 <section id="bridge">
   <h2>4 · Shortcuts bridge (spikes 1, 2, 3)</h2>
@@ -394,6 +403,104 @@ $('it-throttle').onclick = async () => {
   }
   rep('itunes.throttleProbe', firstFail ? `failed: ${firstFail}` : `30/30 ok at 30 req/min`);
   $('it-out').textContent = 'Throttle probe: ' + S.report['itunes.throttleProbe'];
+};
+
+/* ---------- 3b. Network diagnostics ---------- */
+// Each probe isolates one layer: a CORS fetch (what the app does), a no-cors
+// fetch (is the host reachable at all, ignoring CORS?), the JSONP script
+// fallback, control hosts that work elsewhere, and the media CDNs that
+// previews and artwork need.
+const DG_SEARCH = 'https://itunes.apple.com/search?term=gurenge&media=music&entity=song&limit=1&country=us';
+function withTimeout(ms) { const c = new AbortController(); const t = setTimeout(() => c.abort(), ms); return { signal: c.signal, done: () => clearTimeout(t) }; }
+function timing(url) {
+  const e = performance.getEntriesByName(url).pop();
+  if (!e) return 'no resource-timing entry (request may never have left the browser)';
+  const bits = [`dur=${Math.round(e.duration)}ms`];
+  if ('responseStatus' in e) bits.push(`status=${e.responseStatus}`);
+  if (e.nextHopProtocol) bits.push(`proto=${e.nextHopProtocol}`);
+  bits.push(`transfer=${e.transferSize}B`, `dns=${Math.round(e.domainLookupEnd - e.domainLookupStart)}ms`, `connect=${Math.round(e.connectEnd - e.connectStart)}ms`);
+  return bits.join(' ');
+}
+async function probeFetch(name, url, init = {}) {
+  const t0 = performance.now(), to = withTimeout(10000);
+  try {
+    const res = await fetch(url, { ...init, signal: to.signal, cache: 'no-store' });
+    let detail = `type=${res.type} status=${res.status}`;
+    if (res.type !== 'opaque') {
+      detail += ` acao=${res.headers.get('access-control-allow-origin') ?? '(none/unexposed)'} ctype=${res.headers.get('content-type') ?? '?'}`;
+      const body = await res.text(); detail += ` body[0..80]=${JSON.stringify(body.slice(0, 80))}`;
+    }
+    return { name, ok: res.type === 'opaque' || res.ok, outcome: res.type === 'opaque' ? 'reachable (opaque)' : `HTTP ${res.status}`, detail, ms: Math.round(performance.now() - t0), timing: timing(url) };
+  } catch (e) {
+    return { name, ok: false, outcome: e.name === 'AbortError' ? 'TIMEOUT (10 s)' : `${e.name}: ${e.message}`, detail: '', ms: Math.round(performance.now() - t0), timing: timing(url) };
+  } finally { to.done(); }
+}
+function probeScript(name, url) {
+  return new Promise(resolve => {
+    const cb = '__dg_' + Math.random().toString(36).slice(2), s = document.createElement('script'), t0 = performance.now();
+    const full = url + '&callback=' + cb;
+    const finish = (ok, outcome, detail = '') => { clearTimeout(timer); delete window[cb]; s.remove(); resolve({ name, ok, outcome, detail, ms: Math.round(performance.now() - t0), timing: timing(full) }); };
+    const timer = setTimeout(() => finish(false, 'TIMEOUT (10 s)'), 10000);
+    window[cb] = d => finish(true, 'callback ran', `resultCount=${d && d.resultCount}`);
+    s.onerror = ev => finish(false, 'script onerror', `event.type=${ev.type} (fires for network errors, blocks and non-2xx; the browser hides which)`);
+    s.onload = () => setTimeout(() => window[cb] && finish(false, 'script loaded but callback never ran', 'response was not the expected JSONP'), 50);
+    s.src = full; document.head.appendChild(s);
+  });
+}
+function probeImage(name, url) {
+  return new Promise(resolve => {
+    const img = new Image(), t0 = performance.now();
+    const timer = setTimeout(() => resolve({ name, ok: false, outcome: 'TIMEOUT (10 s)', detail: '', ms: 10000, timing: timing(url) }), 10000);
+    img.onload = () => { clearTimeout(timer); resolve({ name, ok: true, outcome: 'loaded', detail: `${img.naturalWidth}x${img.naturalHeight}`, ms: Math.round(performance.now() - t0), timing: timing(url) }); };
+    img.onerror = () => { clearTimeout(timer); resolve({ name, ok: false, outcome: 'img onerror', detail: '', ms: Math.round(performance.now() - t0), timing: timing(url) }); };
+    img.src = url;
+  });
+}
+let lastDiag = null;
+$('dg-run').onclick = async () => {
+  $('dg-out').textContent = 'Running…';
+  const csp = [];
+  const onCsp = e => csp.push(`${e.violatedDirective} blocked ${e.blockedURI}`);
+  document.addEventListener('securitypolicyviolation', onCsp);
+  const probes = [];
+  const run = async p => { const r = await p; probes.push(r); render(); };
+  const env = {
+    userAgent: navigator.userAgent, origin: location.origin, isSecureContext: window.isSecureContext,
+    onLine: navigator.onLine, connection: navigator.connection ? `${navigator.connection.effectiveType || '?'} / ${navigator.connection.type || '?'}` : 'n/a',
+    time: new Date().toISOString(),
+  };
+  const render = () => {
+    $('dg-out').innerHTML = table(['Probe', 'OK', 'Outcome', 'Detail', 'ms', 'Resource timing'],
+      probes.map(p => [p.name, {html: p.ok ? '<span class="ok">✓</span>' : '<span class="bad">✕</span>'}, p.outcome, p.detail, p.ms, p.timing]))
+      + `<pre>${esc(JSON.stringify(env, null, 1))}</pre>`;
+  };
+  const first = await probeFetch('iTunes search (CORS fetch, what the app does)', DG_SEARCH);
+  await run(first);
+  await run(probeFetch('iTunes search (no-cors: is the host reachable at all?)', DG_SEARCH + '&nc=1', { mode: 'no-cors' }));
+  await run(probeScript('iTunes search (JSONP <script>)', DG_SEARCH + '&j=1'));
+  await run(probeFetch('iTunes lookup (CORS fetch)', 'https://itunes.apple.com/lookup?id=1529543135&country=us'));
+  await run(probeFetch('Control: AnimeThemes GraphQL (CORS POST)', 'https://graphql.animethemes.moe/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"query":"{ __typename }"}' }));
+  await run(probeFetch('Control: AniList GraphQL (CORS POST)', 'https://graphql.anilist.co', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"query":"{ SiteStatistics { anime(perPage:1){ nodes { count } } } }"}' }));
+  // Real media URLs come from a lookup via JSONP or fetch, whichever works; else known-good fallbacks.
+  let track = null;
+  try { const r = await fetch('https://itunes.apple.com/lookup?id=1529543135&country=us&m=1'); track = (await r.json()).results[0]; } catch {}
+  if (!track) { try { track = await new Promise((res, rej) => { const cb = '__dgm_' + Date.now(); window[cb] = d => { delete window[cb]; res(d.results[0]); }; const sc = document.createElement('script'); sc.onerror = rej; sc.src = 'https://itunes.apple.com/lookup?id=1529543135&country=us&m=2&callback=' + cb; document.head.appendChild(sc); }); } catch {} }
+  if (track?.artworkUrl100) await run(probeImage('Artwork CDN (mzstatic image)', track.artworkUrl100 + '?dg=' + Date.now()));
+  else probes.push({ name: 'Artwork CDN (mzstatic image)', ok: false, outcome: 'skipped: no track metadata reachable', detail: '', ms: 0, timing: '' });
+  if (track?.previewUrl) await run(probeFetch('Preview CDN (audio preview, no-cors)', track.previewUrl, { mode: 'no-cors' }));
+  else probes.push({ name: 'Preview CDN (audio preview)', ok: false, outcome: 'skipped: no track metadata reachable', detail: '', ms: 0, timing: '' });
+  document.removeEventListener('securitypolicyviolation', onCsp);
+  if (csp.length) env.cspViolations = csp;
+  lastDiag = { env, probes };
+  rep('diagnostics', probes.map(p => `${p.ok ? 'OK ' : 'FAIL'} ${p.name}: ${p.outcome}`));
+  render();
+  log('Diagnostics: ' + probes.filter(p => !p.ok).length + ' probe(s) failed.');
+};
+$('dg-copy').onclick = async () => {
+  if (!lastDiag) return alert('Run diagnostics first');
+  const text = JSON.stringify(lastDiag, null, 1);
+  try { await navigator.clipboard.writeText(text); $('dg-copy').textContent = 'Copied ✓'; setTimeout(() => $('dg-copy').textContent = 'Copy diagnostics', 1500); }
+  catch { prompt('Copy the diagnostics:', text); }
 };
 
 /* ---------- 4. Shortcuts bridge ---------- */
