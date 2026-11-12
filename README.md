@@ -15,6 +15,11 @@ npm run dev     # http://localhost:5173
 npm test
 ```
 
+On the first visit the app walks you through setup: your AniList username
+(public lists need nothing else), your playlist, the two shortcuts and a few
+preferences. After that it opens on "Which anime would you like to add?", and
+everything from setup is under ⚙ Settings.
+
 Status: M1–M4 and M6 done; duplicate prevention in progress.
 - **M1:** AniList list, ordering, and the anime picker: multi-select with checkboxes,
   Shift/Alt/Cmd-click and keyboard shortcuts, and "everything newer than the last

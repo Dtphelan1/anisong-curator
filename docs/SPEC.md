@@ -61,9 +61,10 @@ keyless approach work. Confirm it in the spike.
   on the Apple ID that owns the playlist, so that Shortcuts can add catalog
   tracks.
 - **AniList client ID**, only if your list is private. Register one at
-  `anilist.co/settings/developer` with redirect URL
-  `http://localhost:5173/callback`. The SPA uses the implicit grant, so it only
-  needs the client ID. There is no secret.
+  `anilist.co/settings/developer` with the app's origin as the redirect URL
+  (e.g. `http://localhost:5173/`; the implicit grant returns there with
+  `#access_token=…`). The SPA uses the implicit grant, so it only needs the
+  client ID. There is no secret.
 - **A Mac or iPhone with Shortcuts**, with the two shortcuts in §6 built
   (`Anisong Add Kept`, `Anisong Export Playlist`).
 - **Settings in the app:** AniList username, Apple Music country code (`us`, `jp`,
@@ -72,11 +73,38 @@ keyless approach work. Confirm it in the spike.
 There are no secrets in this design, so nothing sensitive goes into the repo
 or the bundle.
 
+### 4.1 Setup and Settings
+- **First visit** opens a welcome page (what a session is, what setup needs),
+  then four steps: **AniList** (username; required), **Your playlist**,
+  **Shortcuts** and **Preferences** (each skippable). Each step is saved as
+  it's done or skipped, so a closed tab resumes where it was. Until AniList is
+  done and every step is settled, the session pages redirect to setup.
+- **Public lists need only a username.** The login (client ID + implicit
+  grant) appears in setup only when AniList answers that the list is private;
+  otherwise it lives in Settings › AniList.
+- **Settings** (the ⚙ at the top left) is a panel over the current page, so
+  opening it mid-review keeps your place. Sections: AniList (username, sync,
+  which extra statuses the anime page lists, optional login), Playlist,
+  Shortcuts (your own "built" checklist and the guide), Preferences (store,
+  full or TV size, insert songs, autoplay), Data (clear caches, forget the
+  last show added, run setup again).
+- **Pages have URLs:** `#/welcome`, `#/setup/<step>`, `#/anime`, `#/review`,
+  `#/playlist`, and `?settings=<section>` for the panel. Back and reload work.
+  The AniList token is read from the hash before routing, and the login
+  returns to the page it started from.
+- **The AniList list** is read from IndexedDB at once and refreshed in the
+  background when it's more than 12 hours old. The header's AniList chip shows
+  its age and refreshes it on demand.
+- **Upgrading:** settings carry a `defaultsVersion`. At version 3, a browser
+  that already has a username and a loaded list is marked as set up (no
+  setup) and shows a one-time note that the account and preferences moved to
+  Settings.
+
 ## 5. Architecture
 
 ```
 ┌──────────────────── Browser SPA (Vite + React + TS) ─────────────────────┐
-│ Load list → Pick anime → Songs → Review → Already have → Add to playlist │
+│ Setup → Pick anime → Songs → Review → Already have → Add to playlist     │
 │                                                                          │
 │ anilist.ts   themes.ts      matcher.ts +    itunes.ts                    │
 │ GraphQL      AnimeThemes    matching.ts     iTunes Search / Lookup       │
