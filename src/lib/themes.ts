@@ -25,7 +25,7 @@ export const ANIMETHEMES_QUERY = /* GraphQL */ `
         song {
           id
           title { romaji native }
-          performances { as artist { ... on Artist { name { main } } } }
+          performances { as artist { ... on Artist { name { main native } } } }
           resources { nodes { site link } }
         }
         animethemeentries { episodes version }
@@ -45,7 +45,7 @@ export interface AtGqlResponse {
         song: {
           id: number;
           title: { romaji: string | null; native: string | null };
-          performances: { as: string | null; artist: { name?: { main: string | null } } | null }[];
+          performances: { as: string | null; artist: { name?: { main: string | null; native?: string | null } } | null }[];
           resources: { nodes: { site: string; link: string }[] };
         } | null;
         animethemeentries: { episodes: string | null; version: number }[];
@@ -71,6 +71,7 @@ export function mapAnimeThemes(body: AtGqlResponse, requested: number[]): Map<nu
         const links = Object.fromEntries((song?.resources.nodes ?? []).map((r) => [r.site, r.link]));
         // Group members can appear as separate performances; dedupe names.
         const artists = [...new Set((song?.performances ?? []).map((p) => p.artist?.name?.main).filter((n): n is string => !!n))];
+        const artistsNative = [...new Set((song?.performances ?? []).map((p) => p.artist?.name?.native).filter((n): n is string => !!n && !artists.includes(n)))];
         const episodes = t.animethemeentries.map((e) => e.episodes).filter(Boolean).join(', ') || null;
         return {
           slug: t.slug,
@@ -81,6 +82,7 @@ export function mapAnimeThemes(body: AtGqlResponse, requested: number[]): Map<nu
           songTitle: song?.title.romaji ?? null,
           songTitleNative: song?.title.native && song.title.native !== song.title.romaji ? song.title.native : null,
           artists,
+          artistsNative,
           episodes,
           appleMusicUrl: links.APPLE_MUSIC ?? null,
           source: 'animethemes',
@@ -185,6 +187,7 @@ export function jikanToThemes(anilistId: number, data: { openings?: string[]; en
         songTitle: p.title,
         songTitleNative: p.titleNative,
         artists: p.artists,
+        artistsNative: [],
         episodes: p.episodes,
         appleMusicUrl: null,
         source: 'jikan',

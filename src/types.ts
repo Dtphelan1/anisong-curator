@@ -54,6 +54,8 @@ export interface Theme {
   /** Native-script title when the source provides one and it differs from songTitle. */
   songTitleNative: string | null;
   artists: string[];
+  /** Native-script artist names, when known (AnimeThemes `name.native`). */
+  artistsNative: string[];
   episodes: string | null;
   /** Apple Music link curated on AnimeThemes, when present (rare as of 2026-11). */
   appleMusicUrl: string | null;

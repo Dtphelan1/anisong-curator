@@ -64,7 +64,7 @@ function mkShow(id: number, p: Partial<Show> = {}): Show {
   };
 }
 const theme = (anilistId: number, source: Theme['source'] = 'animethemes'): Theme => ({
-  slug: 'OP1', anilistId, kind: 'OP', sequence: 1, songId: 1, songTitle: 'x', songTitleNative: null, artists: [], episodes: null, appleMusicUrl: null, source,
+  slug: 'OP1', anilistId, kind: 'OP', sequence: 1, songId: 1, songTitle: 'x', songTitleNative: null, artists: [], artistsNative: [], episodes: null, appleMusicUrl: null, source,
 });
 function memCache(seed: ThemeLookup[] = []): ThemeCache & { data: Map<number, ThemeLookup> } {
   const data = new Map(seed.map((l) => [l.anilistId, l]));
