@@ -365,7 +365,7 @@ $('it-search').onclick = async () => {
   $('it-out').textContent = 'Searching…';
   try {
     const t0 = performance.now();
-    const data = await itunes('search', { term, country: cc, media: 'music', entity: 'song', limit: '15' });
+    const data = await itunes('search', { term, country: cc, entity: 'song', limit: '15' }); // no media=music: iOS redirects it
     S.itunes = data.results || [];
     rep('itunes.search.ok', true);
     rep('itunes.search.ms', Math.round(performance.now() - t0));
@@ -410,6 +410,7 @@ $('it-throttle').onclick = async () => {
 // fetch (is the host reachable at all, ignoring CORS?), the JSONP script
 // fallback, control hosts that work elsewhere, and the media CDNs that
 // previews and artwork need.
+// The app's original URL. It includes media=music, which iOS redirects; kept as the regression probe.
 const DG_SEARCH = 'https://itunes.apple.com/search?term=gurenge&media=music&entity=song&limit=1&country=us';
 function withTimeout(ms) { const c = new AbortController(); const t = setTimeout(() => c.abort(), ms); return { signal: c.signal, done: () => clearTimeout(t) }; }
 function timing(url) {

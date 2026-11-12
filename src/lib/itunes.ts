@@ -8,6 +8,7 @@ import { createLimiter, HttpError } from './rateLimit';
  * - Lookup accepts comma-separated ids, and with entity=song an album id
  *   expands to its tracks. Both batch.
  * - Throttling is undocumented (~20/min is the folklore); be conservative.
+ * - Never send `media=music` to /search: iOS gets a redirect pages can't follow.
  */
 export interface ItunesTrack {
   trackId: number;
@@ -105,7 +106,10 @@ async function get(path: 'search' | 'lookup', params: Record<string, string>, de
 }
 
 export async function searchSongs(term: string, country: string, limit = 15, deps?: ItunesDeps): Promise<ItunesTrack[]> {
-  const results = await get('search', { term, country, media: 'music', entity: 'song', limit: String(limit) }, deps);
+  // No `media=music`: on iPhone, Apple answers searches carrying it with a
+  // redirect (to the Music app) that a web page can't follow ("Load failed").
+  // `entity=song` alone returns the same results (verified 2026-11-12).
+  const results = await get('search', { term, country, entity: 'song', limit: String(limit) }, deps);
   return results.map((r) => toTrack(r, country)).filter((t): t is ItunesTrack => !!t);
 }
 
