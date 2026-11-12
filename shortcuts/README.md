@@ -205,64 +205,58 @@ Details, with *If there's no input* set to **Continue**.
 This adds every link, including duplicates. The app's held-back list is
 the only duplicate protection when you use this one.
 
-### 4b. `Anisong Add Kept (dedupe)`: skips songs already in the playlist
+### 4b. `Anisong Export Playlist`: copy the playlist for the app's duplicate check
+
+Duplicate checking happens **in the app** (SPEC §9.4): diffing inside a
+shortcut was slow, timed out, and could only compare exact text. This
+shortcut only *reads*. It copies the playlist's titles, artists and durations
+to the clipboard, with no loop, and you paste the result into the app's
+**Sync playlist** box (Kept section) before exporting. Use **4a** to add
+songs.
+
+It takes no input, so it skips the input block: there's nothing to read
+except the playlist itself.
 
 | # | Action | Settings |
 |---|---|---|
-| 1 | **If** | Input: *Shortcut Input*. Condition: **has any value** |
-| 2 | **Set Variable** | Name: `Input`. Input: *Shortcut Input* |
-| 3 | **Otherwise** | added with step 1 |
-| 4 | **Get Clipboard** | none |
-| 5 | **Set Variable** | Name: `Input`. Input: *Clipboard* |
-| 6 | **End If** | closes step 1 |
-| 7 | **Find Music** | Filter: **Playlist** *is* **🔥 AniSong MegaMix** (picker). No sort, no limit |
-| 8 | **Repeat with Each** | Input: *Music* (from step 7) |
-| 9 | **Text** | Insert *Repeat Item*, tap it → **Title**; then type ` \| ` (space, bar, space); then insert *Repeat Item* again, tap it → **Artist** |
-| 10 | **End Repeat** | added automatically |
-| 11 | **Combine Text** | Input: *Repeat Results*. Separator: **New Lines** |
-| 12 | **Change Case** | Input: *Combined Text*. Case: **lowercase** |
-| 13 | **Set Variable** | Name: `Existing`. Input: *Updated Text* (from step 12) |
-| 14 | **Split Text** | Input: variable *Input*. Separator: **New Lines** |
-| 15 | **Repeat with Each** | Input: *Split Text* |
-| 16 | **Set Variable** | Name: `Line`. Input: *Repeat Item* |
-| 17 | **If** | Input: *Line*. Condition: **contains** `music.apple.com` |
-| 18 | **Replace Text** | Find: ` \| https?://.*$` (leading space). Replace with: *(leave empty)*. In: *Line*. Tap *Show More*: turn **Regular Expression** on. The result is `Gurenge \| LiSA` |
-| 19 | **Change Case** | Input: *Updated Text* (from step 18). Case: **lowercase** |
-| 20 | **Set Variable** | Name: `Key`. Input: *Updated Text* (from step 19) |
-| 21 | **If** | Input: variable *Existing*. Condition: **contains** → insert variable *Key* |
-| 22 | **Add to Variable** | Name: `Skipped`. Input: *Key* |
-| 23 | **Otherwise** | added with step 21 |
-| 24 | **Get URLs from Input** | Input: *Line* |
-| 25 | **Add to Variable** | Name: `ToAdd`. Input: *URLs* (from step 24) |
-| 26 | **End If** | closes step 21 |
-| 27 | **End If** | closes step 17 (it sits just above **End Repeat**) |
-| 28 | **End Repeat** | closes step 15 |
-| 29 | **Count** | Count **Items** in variable *ToAdd* |
-| 30 | **If** | Input: *Count* (from step 29). Condition: **is** `0` |
-| 31 | **Show Alert** | `Nothing new to add. All songs are already in the playlist.` Turn *Show Cancel Button* off |
-| 32 | **Stop This Shortcut** | none |
-| 33 | **End If** | closes step 30 |
-| 34 | **Choose from Menu** | Prompt: `Add songs to…`. Items: `🔥 AniSong MegaMix`, `New playlist` |
-| 35 | *(under **🔥 AniSong MegaMix**)* **Add to Playlist** | Music: variable *ToAdd*. Playlist: **🔥 AniSong MegaMix** (picker) |
-| 36 | *(under **New playlist**)* **Create Playlist** | Name: `anisong-curator ` + *Current Date*. Items: variable *ToAdd* |
-| 37 | **End Menu** | added automatically |
-| 38 | **Count** | Count **Items** in variable *Skipped* |
-| 39 | **Show Notification** | `Done. Skipped ` + *Count* (from step 38) + ` duplicate(s).` |
+| 1 | **Find Music** | Filter: **Playlist** *is* **🔥 AniSong MegaMix** (picker). No sort, no limit |
+| 2 | **Set Variable** | Name: `Songs`. Input: *Music* |
+| 3 | **Get Details of Music** | Detail: **Title**. Input: variable *Songs* |
+| 4 | **Combine Text** | Input: *Title* (from step 3). Separator: **New Lines** |
+| 5 | **Set Variable** | Name: `Titles`. Input: *Combined Text* |
+| 6 | **Get Details of Music** | Detail: **Artist**. Input: variable *Songs* |
+| 7 | **Combine Text** | Input: *Artist* (from step 6). Separator: **New Lines** |
+| 8 | **Set Variable** | Name: `Artists`. Input: *Combined Text* |
+| 9 | **Get Details of Music** | Detail: **Duration**. Input: variable *Songs* |
+| 10 | **Combine Text** | Input: *Duration* (from step 9). Separator: **New Lines** |
+| 11 | **Set Variable** | Name: `Durations`. Input: *Combined Text* |
+| 12 | **Text** | Exactly the block below, with the three variables inserted where shown |
+| 13 | **Copy to Clipboard** | Input: *Text* (from step 12) |
+| 14 | **Count** | Count **Items** in variable *Songs* |
+| 15 | **Show Notification** | `Copied ` + *Count* + ` songs. Paste into the app's Sync playlist box.` |
 
-**Before trusting it, check these:**
-- **The list is right.** Temporarily add a **Quick Look** after step 13 and run
-  it. You should see lines like `gurenge | lisa`, one per playlist song. If
-  you see one line, step 11 isn't using *Repeat Results*. If you see titles
-  without artists, step 9's second token isn't set to **Artist**.
-- **Duplicates are skipped.** Copy a list that includes a song already in the
-  playlist (in the app, tick **add anyway** to force it in), run with **New
-  playlist**, and check that song is missing from the new playlist and the
-  notification says `Skipped 1`.
-- **Nesting.** The **If / Otherwise / End If** blocks in steps 17–27 must sit
-  *inside* the **Repeat** of step 15. If step 29 appears indented, an
-  **End** is in the wrong place.
+Step 12's text: each `‹…›` is an inserted variable. The first two lines and
+the `---…---` markers must be typed exactly.
 
-**Known limits.** The check is exact text after lowercasing, so a song whose
-library title differs from the catalog title won't be caught; the app's check
-is more forgiving. A title that contains another (`again | yui` inside
-`again | yuika`) can cause a false skip. Both are rare.
+```
+anisong-playlist v1
+🔥 AniSong MegaMix
+---titles---
+‹Titles›
+---artists---
+‹Artists›
+---durations---
+‹Durations›
+```
+
+**Check it once.** Run it, paste into a note, and confirm:
+- each section has one line per song, and the three sections have the same
+  number of lines (the app zips them by position);
+- **titles appear one per line.** If step 3 returns a single combined value
+  instead of a list, wrap steps 3–10 in a **Repeat with Each** over *Songs*.
+  That's slower, but still only reads.
+
+The order of songs from **Find Music** may not be playlist order, so the app
+uses this export for duplicate checks only. The "suggest last show" feature
+still wants the Mac export (File → Library → Export Playlist…), which is
+ordered.
