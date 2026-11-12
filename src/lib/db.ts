@@ -4,6 +4,7 @@ import type { ThemeCache } from './themes';
 import type { MatchResult } from './matching';
 import type { ParseResult, PlaylistRow, SortDetection } from './playlistImport';
 import type { AddedRecord } from './dedupe';
+import { appendAdds, itemsAsRows, planImport, type PlaylistItem, type PlaylistMeta } from './playlistLibrary';
 
 export type DecisionValue = 'keep' | 'skip' | 'later';
 export interface Decision {
@@ -16,7 +17,12 @@ export interface Decision {
   addAnyway?: boolean;
 }
 
-/** An imported copy of the playlist: Music.app export, pasted rows, or the Anisong Export Playlist shortcut's text. */
+/**
+ * An imported copy of the playlist: Music.app export, pasted rows, or the
+ * Anisong Export Playlist shortcut's text. Since v5 this is a read-only view
+ * of the playlist library (`loadLatestSnapshot`); the `playlistSnapshots`
+ * table is kept, unused, for one version as a rollback.
+ */
 export interface PlaylistSnapshot {
   name: string;
   rows: PlaylistRow[];
@@ -69,6 +75,10 @@ export class CuratorDB extends Dexie {
   playlistSnapshots!: EntityTable<PlaylistSnapshot, 'name'>;
   /** Add log (docs/SPEC.md, "Duplicate prevention"): songs the user confirmed adding via the shortcut. */
   added!: EntityTable<AddedRecord & { id?: number }, 'id'>;
+  /** The playlist library (docs/SPEC.md, "Playlist library"): one row per song in the playlist. */
+  playlistItems!: EntityTable<PlaylistItem, 'id'>;
+  /** The library before the last import, for Undo sync (one kept). */
+  playlistImports!: EntityTable<PlaylistUndo, 'id'>;
 
   constructor(name = 'anisong-curator') {
     super(name);
@@ -90,7 +100,53 @@ export class CuratorDB extends Dexie {
     this.version(4).stores({
       added: '++id, trackId, batchId, addedAt',
     });
+    // v5: the playlist library. Replays the latest snapshot and the add log.
+    this.version(5).stores({
+      playlistItems: 'id, position, origin, *anilistIds, addedBatch',
+      playlistImports: 'id, at',
+    }).upgrade(async (tx) => {
+      const snaps = (await tx.table('playlistSnapshots').toArray()) as PlaylistSnapshot[];
+      const latest = snaps.sort((a, b) => a.importedAt - b.importedAt).at(-1) ?? null;
+      const added = (await tx.table('added').toArray()) as AddedRecord[];
+      const { items, meta } = migrateToLibrary(latest, added);
+      if (items.length) await tx.table('playlistItems').bulkPut(items);
+      if (meta) await tx.table('meta').put({ key: PLAYLIST_META, value: meta });
+    });
   }
+}
+
+/** The library before an import, for Undo sync. */
+export interface PlaylistUndo {
+  id: string;
+  at: number;
+  items: PlaylistItem[];
+  meta: PlaylistMeta | null;
+}
+
+/** Key of the PlaylistMeta singleton in `meta`. */
+export const PLAYLIST_META = 'playlist';
+
+/** A stored snapshot as a parse, so it can go through the normal import path. */
+export function snapshotAsParse(s: PlaylistSnapshot): ParseResult {
+  return {
+    rows: s.rows, warnings: s.warnings, format: s.format, guessed: false, header: null, encoding: 'text',
+    mapping: { title: null, artist: null, album: null, time: null }, playlistName: s.name,
+    ordered: s.ordered ?? true, artistsKnown: s.artistsKnown !== false, sortedBy: s.sortedBy ?? null,
+  };
+}
+
+/**
+ * v4 → v5: the add log's batches are appended (oldest first), then the
+ * latest snapshot is imported on top, which confirms the adds it contains.
+ */
+export function migrateToLibrary(latest: PlaylistSnapshot | null, added: AddedRecord[]): { items: PlaylistItem[]; meta: PlaylistMeta | null } {
+  let items: PlaylistItem[] = [];
+  const batches = new Map<string, AddedRecord[]>();
+  for (const r of [...added].sort((a, b) => a.addedAt - b.addedAt)) batches.set(r.batchId, [...(batches.get(r.batchId) ?? []), r]);
+  for (const [batchId, recs] of batches) items = appendAdds(items, recs, batchId, recs[0]!.addedAt);
+  if (!latest) return { items, meta: items.length ? { name: '', syncedAt: null, lastImport: null } : null };
+  const p = planImport(items, snapshotAsParse(latest), { now: latest.importedAt, importId: 'migrated' });
+  return { items: p.next, meta: { name: latest.name, syncedAt: latest.importedAt, lastImport: p.event } };
 }
 
 export const db = new CuratorDB();
@@ -117,17 +173,43 @@ export async function loadShows(database: CuratorDB = db): Promise<{ shows: Show
   return { shows, user: meta?.user ?? null, at: meta?.at ?? null };
 }
 
-/** The most recently imported snapshot (the app works with one playlist). */
+/**
+ * The playlist as a snapshot, built from the library: imported songs in
+ * playlist order, carrying their trusted theme keys. App adds not yet seen
+ * in an import are left out (the add log covers them). Kept so screens
+ * written for snapshots work unchanged.
+ */
 export async function loadLatestSnapshot(database: CuratorDB = db): Promise<PlaylistSnapshot | null> {
-  const s = await database.playlistSnapshots.orderBy('importedAt').last();
-  // Pre-`ordered` snapshots were all Music.app exports or pasted rows.
-  return s ? { ...s, ordered: s.ordered ?? true } : null;
+  const meta = (await database.meta.get(PLAYLIST_META))?.value as PlaylistMeta | undefined;
+  if (!meta?.lastImport) return null;
+  const items = await database.playlistItems.toArray();
+  return snapshotFromLibrary(meta, items);
 }
 
+export function snapshotFromLibrary(meta: PlaylistMeta, items: PlaylistItem[]): PlaylistSnapshot | null {
+  const ev = meta.lastImport;
+  if (!ev) return null;
+  return {
+    name: meta.name || 'Playlist',
+    rows: itemsAsRows(items),
+    importedAt: meta.syncedAt ?? ev.at,
+    format: ev.format,
+    warnings: ev.warnings,
+    ordered: ev.orderIsPlaylist,
+    artistsKnown: ev.artistsKnown,
+    sortedBy: ev.sortedBy,
+  };
+}
+
+/** Import a snapshot into the library (the one playlist): a sync without preview. */
 export async function saveSnapshot(s: PlaylistSnapshot, database: CuratorDB = db): Promise<void> {
-  await database.playlistSnapshots.put(s);
+  const { playlistStore } = await import('./playlistStore');
+  const store = playlistStore(database);
+  await store.commit(await store.preview(snapshotAsParse(s)), s.name);
 }
 
-export async function deleteSnapshot(name: string, database: CuratorDB = db): Promise<void> {
-  await database.playlistSnapshots.delete(name);
+/** Forget the playlist (the library and its undo; the add log stays). */
+export async function deleteSnapshot(_name: string, database: CuratorDB = db): Promise<void> {
+  const { playlistStore } = await import('./playlistStore');
+  await playlistStore(database).clear();
 }

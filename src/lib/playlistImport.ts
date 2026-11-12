@@ -23,6 +23,11 @@ export interface PlaylistRow {
   artist: string;
   album: string;
   durationMs: number | null;
+  /**
+   * Theme keys this row is linked to with confidence (playlist library), for
+   * the theme-level duplicate check. Absent on freshly parsed rows.
+   */
+  themeKeys?: string[];
 }
 
 export type ColumnField = 'title' | 'artist' | 'album' | 'time';
