@@ -7,7 +7,7 @@ import type { ItunesTrack } from './itunes';
 import { themeKey, type MatchResult } from './matching';
 import { DEFAULT_ORDER, orderShows } from './ordering';
 import type { PlaylistRow } from './playlistImport';
-import { buildThemeIndex, findInPlaylist, indexPlaylist, inferTail, mapRow, titleStems } from './tailInference';
+import { buildThemeIndex, inferTail, mapRow, titleStems } from './tailInference';
 import { mapAnimeThemes, type AtGqlResponse } from './themes';
 
 /** These tests were written against ascending order; the app default is now newest-first. */
@@ -165,34 +165,5 @@ describe('inferTail', () => {
     expect(idx.entries.length).toBeGreaterThan(2000);
     expect(r.suggestion!.show.anilistId).toBe(166613);
     expect(ms).toBeLessThan(1500);
-  });
-});
-
-describe('findInPlaylist (§9.4)', () => {
-  const idx = indexPlaylist([
-    row('Gurenge', 'LiSA', 'Gurenge - EP', 238_000, 1),
-    row('Golden Time Rubber', 'Sukimaswitch', 'Nayuta To Fukashigi', 369_000, 2),
-    row('Uso', 'Sid', 'Uso - Single', null, 3),
-  ]);
-  const t = (trackName: string, artistName: string, trackTimeMillis: number | null) => ({ trackName, artistName, trackTimeMillis });
-
-  it('same normalized title + artist within ±3 s is a duplicate', () => {
-    expect(findInPlaylist(idx, t('GURENGE', 'LiSA', 238_587))).toMatchObject({ kind: 'duplicate', row: { position: 1 } });
-    expect(findInPlaylist(idx, t('Golden Time Rubber', 'Sukimaswitch', 369_453))?.kind).toBe('duplicate');
-  });
-
-  it('unknown duration on either side still counts as a duplicate', () => {
-    expect(findInPlaylist(idx, t('Uso', 'Sid', 208_120))?.kind).toBe('duplicate');
-    expect(findInPlaylist(idx, t('Gurenge', 'LiSA', null))?.kind).toBe('duplicate');
-  });
-
-  it('different duration or a version suffix is "version" (TV size vs full)', () => {
-    expect(findInPlaylist(idx, t('Gurenge', 'LiSA', 90_000))?.kind).toBe('version');
-    expect(findInPlaylist(idx, t('Gurenge (TV Size)', 'LiSA', 90_000))?.kind).toBe('version');
-  });
-
-  it('other artists or titles are not in the playlist', () => {
-    expect(findInPlaylist(idx, t('Gurenge', 'Mewsic', 238_000))).toBeNull();
-    expect(findInPlaylist(idx, t('Homura', 'LiSA', 238_000))).toBeNull();
   });
 });

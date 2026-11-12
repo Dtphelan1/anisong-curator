@@ -7,7 +7,6 @@ import { useSettings } from './lib/settings';
 import { resolveThemes, type ResolveProgress } from './lib/themes';
 import { ShowPicker } from './components/ShowPicker';
 import { PlaylistPanel } from './components/PlaylistPanel';
-import { indexPlaylist } from './lib/tailInference';
 import { ThemeList } from './components/ThemeList';
 import { Review } from './components/Review';
 import { buildReviewItems } from './lib/useMatching';
@@ -52,7 +51,6 @@ export function App() {
       sortThemes(lookups.get(s.anilistId)?.themes ?? []).filter((t) => settings.includeInserts || t.kind !== 'IN')),
     [candidates, lookups, settings.includeInserts, settings.order.direction],
   );
-  const playlistIndex = useMemo(() => (snapshot ? indexPlaylist(snapshot.rows) : null), [snapshot]);
   const prefs = useMemo(() => ({ preferTvSize: settings.preferTvSize }), [settings.preferTvSize]);
 
   async function loadList() {
@@ -159,7 +157,8 @@ export function App() {
           prefs={prefs}
           autoplay={settings.autoplay}
           playlistName={settings.playlistName}
-          playlist={playlistIndex}
+          snapshot={snapshot}
+          onSnapshot={setSnapshot}
           onSettings={update}
           onBack={() => setStep('themes')}
         />

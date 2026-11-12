@@ -1,6 +1,6 @@
 /**
- * V2 (SPEC §9.5): map the playlist tail onto shows and suggest the bound,
- * plus the snapshot duplicate check (§9.4).
+ * V2 (SPEC §9.5): map the playlist tail onto shows and suggest the bound.
+ * (The duplicate check, §9.4, lives in dedupe.ts.)
  *
  * Name-to-name matching only: playlist rows (title, artist, album) are scored
  * against every theme of every listed show with the catalog matcher's
@@ -310,49 +310,6 @@ export function inferTail({ rows, index, ordered, direction, matches = [], n = T
     unmatched: tail.filter((r) => !r.pick).length,
     excluded: tail.filter((r) => r.pick && r.orderIndex === null).length,
   };
-}
-
-/* ------------------------------------------------------------------ */
-/* Already in the playlist (§9.4)                                      */
-/* ------------------------------------------------------------------ */
-
-export const DURATION_TOLERANCE_MS = 3000;
-
-export interface PlaylistIndex {
-  exact: Map<string, PlaylistRow[]>;
-  core: Map<string, PlaylistRow[]>;
-  size: number;
-}
-
-const coreKey = (title: string, artist: string) => `${coreTitle(title)}|${normalize(artist)}`;
-const push = <K, V>(m: Map<K, V[]>, k: K, v: V) => { const a = m.get(k); a ? a.push(v) : m.set(k, [v]); };
-
-/** Index the WHOLE snapshot (not just the tail) once; lookups are O(1). */
-export function indexPlaylist(rows: PlaylistRow[]): PlaylistIndex {
-  const exact = new Map<string, PlaylistRow[]>();
-  const core = new Map<string, PlaylistRow[]>();
-  for (const r of rows) {
-    push(exact, nameKey(r.title, r.artist), r);
-    push(core, coreKey(r.title, r.artist), r);
-  }
-  return { exact, core, size: rows.length };
-}
-
-export interface InPlaylist {
-  /** duplicate: same title + artist, duration within ±3 s (or unknown). version: same song, other cut/duration. */
-  kind: 'duplicate' | 'version';
-  row: PlaylistRow;
-}
-
-export function findInPlaylist(idx: PlaylistIndex, t: Pick<ItunesTrack, 'trackName' | 'artistName' | 'trackTimeMillis'>): InPlaylist | null {
-  const near = (r: PlaylistRow) => r.durationMs === null || t.trackTimeMillis === null || Math.abs(r.durationMs - t.trackTimeMillis) <= DURATION_TOLERANCE_MS;
-  const same = idx.exact.get(nameKey(t.trackName, t.artistName));
-  if (same?.length) {
-    const dup = same.find(near);
-    return dup ? { kind: 'duplicate', row: dup } : { kind: 'version', row: same[0]! };
-  }
-  const sameCore = idx.core.get(coreKey(t.trackName, t.artistName));
-  return sameCore?.length ? { kind: 'version', row: sameCore[0]! } : null;
 }
 
 /** The chosen track of a match, if any. */

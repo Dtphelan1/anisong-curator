@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { displayTitle } from '../lib/anilist';
-import type { DecisionValue } from '../lib/db';
+import { saveSnapshot, SNAPSHOT_SOURCE, snapshotFromParse, type DecisionValue, type PlaylistSnapshot } from '../lib/db';
 import { lookup, parseAppleMusicUrl, searchSongs, songUrl, type ItunesTrack } from '../lib/itunes';
 import { confidenceOf, rankTracks, type Flag, type MatchPrefs } from '../lib/matcher';
 import type { Candidate, MatchResult } from '../lib/matching';
-import { chosenTrack, findInPlaylist, indexPlaylist, type InPlaylist, type PlaylistIndex } from '../lib/tailInference';
-import { addedAsRows, planExport, REASON_LABEL, shortcutLine, type AddedRecord, type ExportItem } from '../lib/dedupe';
+import { chosenTrack } from '../lib/tailInference';
+import {
+  addedAsRows, checkSources, indexRows, planExport, REASON_LABEL, shortcutLine, themeNames, TIER_LABEL,
+  type AddedRecord, type DupHit, type DupIndex, type ExportItem,
+} from '../lib/dedupe';
+import { parsePlaylist, type ParseResult } from '../lib/playlistImport';
 import { useAdded } from '../lib/useAdded';
 import { useDecisions, useMatching, type ReviewItem } from '../lib/useMatching';
 
@@ -14,8 +18,9 @@ interface Props {
   country: string;
   prefs: MatchPrefs;
   autoplay: boolean;
-  /** Imported playlist snapshot, for the "already in playlist" check (§9.4). */
-  playlist?: PlaylistIndex | null;
+  /** Synced playlist snapshot, for the "already in playlist" check. */
+  snapshot: PlaylistSnapshot | null;
+  onSnapshot: (s: PlaylistSnapshot) => void;
   playlistName: string;
   onSettings: (patch: { country?: string; preferTvSize?: boolean; autoplay?: boolean; playlistName?: string }) => void;
   onBack: () => void;
@@ -30,7 +35,7 @@ const CONF_LABEL = { high: 'confident', check: 'check me', low: 'unlikely', none
 const mmss = (ms: number | null) => (ms ? `${Math.floor(ms / 60000)}:${String(Math.round(ms / 1000) % 60).padStart(2, '0')}` : '');
 const isTyping = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
 
-export function Review({ items, country, prefs, autoplay, playlist = null, playlistName, onSettings, onBack }: Props) {
+export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, playlistName, onSettings, onBack }: Props) {
   const [index, setIndex] = useState(0);
   const [onlyUndecided, setOnlyUndecided] = useState(false);
   const [hideInPlaylist, setHideInPlaylist] = useState(false);
@@ -46,22 +51,25 @@ export function Review({ items, country, prefs, autoplay, playlist = null, playl
   const decision = item ? decisions.get(item.key) : undefined;
 
   const { added, record, undoBatch } = useAdded();
-  const addedIdx = useMemo(() => (added.length ? indexPlaylist(addedAsRows(added)) : null), [added]);
+  const playlist = useMemo(() => (snapshot ? indexRows(snapshot.rows, { artistsKnown: snapshot.artistsKnown !== false }) : null), [snapshot]);
+  const addedIndex = useMemo(() => (added.length ? indexRows(addedAsRows(added)) : null), [added]);
+  // Same scoring as the export plan, so the badges and the held-back list agree.
   const inPlaylist = useMemo(() => {
-    const m = new Map<string, InPlaylist>();
-    if (!playlist && !addedIdx) return m;
+    const m = new Map<string, DupHit>();
+    if (!playlist && !addedIndex) return m;
     for (const it of items) {
       const t = chosenTrack(matches.get(it.key));
       if (!t) continue;
-      // Exact hits in either source beat "other version" hits.
-      const hits = [playlist && findInPlaylist(playlist, t), addedIdx && findInPlaylist(addedIdx, t)].filter((h): h is InPlaylist => !!h);
-      const hit = hits.find((h) => h.kind === 'duplicate') ?? hits[0];
+      const hit = checkSources(
+        { trackId: t.trackId, title: t.trackName, artist: t.artistName, durationMs: t.trackTimeMillis, ...themeNames(it.theme) },
+        { playlist, added, addedIndex },
+      );
       if (hit) m.set(it.key, hit);
     }
     return m;
-  }, [playlist, addedIdx, items, matches]);
-  const hidden = useCallback((i: number) => hideInPlaylist && inPlaylist.get(items[i]!.key)?.kind === 'duplicate', [hideInPlaylist, inPlaylist, items]);
-  const dupCount = useMemo(() => [...inPlaylist.values()].filter((x) => x.kind === 'duplicate').length, [inPlaylist]);
+  }, [playlist, added, addedIndex, items, matches]);
+  const hidden = useCallback((i: number) => hideInPlaylist && inPlaylist.get(items[i]!.key)?.tier === 'duplicate', [hideInPlaylist, inPlaylist, items]);
+  const dupCount = useMemo(() => [...inPlaylist.values()].filter((x) => x.tier === 'duplicate').length, [inPlaylist]);
 
   const visibleIdx = useMemo(
     () => items.map((_, i) => i).filter((i) => i === index || ((!onlyUndecided || !decisions.has(items[i]!.key)) && !hidden(i))),
@@ -144,7 +152,7 @@ export function Review({ items, country, prefs, autoplay, playlist = null, playl
           <span className="spacer" />
           <label><input type="checkbox" checked={onlyUndecided} onChange={(e) => setOnlyUndecided(e.target.checked)} /> Undecided only</label>
           {(playlist || added.length > 0) && (
-            <label title="Same title and artist (±3 s) as a song in your imported playlist or the app's add log">
+            <label title="Same title and artist (±3 s) as a song in your synced playlist or the app's add log">
               <input type="checkbox" checked={hideInPlaylist} onChange={(e) => setHideInPlaylist(e.target.checked)} /> Hide already in playlist ({dupCount})
             </label>
           )}
@@ -197,7 +205,7 @@ export function Review({ items, country, prefs, autoplay, playlist = null, playl
       </section>
 
       <Queue items={items} index={index} onPick={setIndex} matches={matches} status={status} decisions={decisions} inPlaylist={inPlaylist} />
-      <KeptSummary items={items} matches={matches} decisions={decisions} country={country} playlistName={playlistName} playlist={playlist} added={added} onRecord={record} onUndo={undoBatch} />
+      <KeptSummary items={items} matches={matches} decisions={decisions} country={country} playlistName={playlistName} playlist={playlist} snapshot={snapshot} onSnapshot={onSnapshot} added={added} onRecord={record} onUndo={undoBatch} />
     </>
   );
 }
@@ -211,16 +219,16 @@ function Flags({ c, theme }: { c: Candidate; theme: ReviewItem['theme'] }) {
   );
 }
 
-function InPlaylistBadge({ hit }: { hit?: InPlaylist }) {
+function InPlaylistBadge({ hit }: { hit?: DupHit }) {
   if (!hit) return null;
-  const where = `Playlist #${hit.row.position}: ${hit.row.title} — ${hit.row.artist}`;
-  return hit.kind === 'duplicate'
-    ? <span className="badge in-playlist" title={where}>already in playlist</span>
-    : <span className="badge warn" title={where}>other version in playlist</span>;
+  const name = `${hit.row.title}${hit.row.artist ? ` — ${hit.row.artist}` : ''}`;
+  const where = hit.source === 'added' ? `Added by the app: ${name}` : `Playlist #${hit.row.position}: ${name}`;
+  const label = hit.source === 'added' && hit.tier !== 'other-version' ? 'already added' : TIER_LABEL[hit.tier];
+  return <span className={`badge ${hit.tier === 'duplicate' ? 'in-playlist' : 'warn'}`} title={`${where} (match ${Math.round(hit.score * 100)}%)`}>{label}</span>;
 }
 
 function MatchView({ item, match, chosen, status, error, audioRef, inPlaylist }: {
-  item: ReviewItem; match?: MatchResult; chosen?: Candidate; status?: string; error?: string; audioRef: React.RefObject<HTMLAudioElement>; inPlaylist?: InPlaylist;
+  item: ReviewItem; match?: MatchResult; chosen?: Candidate; status?: string; error?: string; audioRef: React.RefObject<HTMLAudioElement>; inPlaylist?: DupHit;
 }) {
   if (!match || status === 'matching' || status === 'queued') {
     return <div className="match pending">{status === 'matching' ? 'Searching Apple Music…' : 'Queued for matching…'}<audio ref={audioRef} /></div>;
@@ -317,7 +325,7 @@ function ManualSearch({ item, country, prefs, inputRef, onUse }: {
 
 function Queue({ items, index, onPick, matches, status, decisions, inPlaylist }: {
   items: ReviewItem[]; index: number; onPick: (i: number) => void;
-  matches: Map<string, MatchResult>; status: Map<string, string>; decisions: Map<string, { decision: DecisionValue }>; inPlaylist: Map<string, InPlaylist>;
+  matches: Map<string, MatchResult>; status: Map<string, string>; decisions: Map<string, { decision: DecisionValue }>; inPlaylist: Map<string, DupHit>;
 }) {
   return (
     <section className="card">
@@ -347,15 +355,28 @@ function Queue({ items, index, onPick, matches, status, decisions, inPlaylist }:
 type ExportFormat = 'shortcut' | 'text' | 'json';
 const EXPORT_KEY = 'anisong-curator.exportFormat';
 const EXPORT_FORMATS: { value: ExportFormat; label: string; hint: string }[] = [
-  { value: 'shortcut', label: 'Shortcut', hint: 'Title | Artist | link, one per line: what the Add Kept shortcut expects' },
+  { value: 'shortcut', label: 'Shortcut', hint: 'Title | Artist | link, one per line: Anisong Add Kept adds the links' },
   { value: 'text', label: 'Text + links', hint: 'Readable: song, artist, show, then the link' },
-  { value: 'json', label: 'JSON', hint: '{country, ids}: for the spike Add Tracks shortcut' },
+  { value: 'json', label: 'JSON', hint: '{country, ids}: for the spike Anisong Add Tracks shortcut' },
 ];
 
-function KeptSummary({ items, matches, decisions, country, playlistName, playlist, added, onRecord, onUndo }: {
+/** A snapshot older than this gets a gentle "sync first" prompt. */
+const STALE_MS = 7 * 24 * 3600 * 1000;
+
+function ago(ms: number, now = Date.now()): string {
+  const s = Math.max(0, Math.round((now - ms) / 1000));
+  if (s < 60) return 'just now';
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h} h ago`;
+  return `${Math.round(h / 24)} days ago`;
+}
+
+function KeptSummary({ items, matches, decisions, country, playlistName, playlist, snapshot, onSnapshot, added, onRecord, onUndo }: {
   items: ReviewItem[]; matches: Map<string, MatchResult>; decisions: Map<string, { decision: DecisionValue; trackId: number | null }>;
-  country: string; playlistName: string; playlist: PlaylistIndex | null; added: AddedRecord[];
-  onRecord: (items: ExportItem[]) => Promise<string>; onUndo: (batchId: string) => Promise<void>;
+  country: string; playlistName: string; playlist: DupIndex | null; snapshot: PlaylistSnapshot | null; onSnapshot: (s: PlaylistSnapshot) => void;
+  added: AddedRecord[]; onRecord: (items: ExportItem[]) => Promise<string>; onUndo: (batchId: string) => Promise<void>;
 }) {
   const [copied, setCopied] = useState(false);
   const [overrides, setOverrides] = useState<Set<string>>(new Set());
@@ -374,6 +395,8 @@ function KeptSummary({ items, matches, decisions, country, playlistName, playlis
       title: t?.trackName ?? it.theme.songTitle ?? '', artist: t?.artistName ?? it.theme.artists.join(', '),
       durationMs: t?.trackTimeMillis ?? null, url: songUrl(d.trackId, country),
       label: `${displayTitle(it.show)} ${it.theme.slug}`,
+      // The theme's romaji/native names catch a playlist that names the song differently (紅蓮華 vs Gurenge).
+      ...themeNames(it.theme),
     }];
   }), [items, decisions, matches, country]);
   const plan = useMemo(() => planExport(exportItems, { playlist, added, overrides }), [exportItems, playlist, added, overrides]);
@@ -401,10 +424,10 @@ function KeptSummary({ items, matches, decisions, country, playlistName, playlis
   return (
     <section className="card">
       <h2>Kept · {plan.add.length} to add{plan.held.length > 0 && <span className="muted"> · {plan.held.length} held back</span>}</h2>
+      <PlaylistSync snapshot={snapshot} playlistName={playlistName} onSnapshot={onSnapshot} />
       <p className="muted">
-        In playlist order (oldest show first). Copy, run the <strong>Anisong Add Kept</strong> shortcut to add them to{' '}
+        In playlist order (oldest show first). Copy, run <strong>Anisong Add Kept</strong> to add them to{' '}
         <strong>{playlistName}</strong> (or a new staging playlist), then press <strong>I added these</strong> so they're never exported again.
-        {!playlist && ' Import your playlist above to also catch songs added outside the app.'}
       </p>
       <div className="row">
         <div className="segmented" role="radiogroup" aria-label="Export format">
@@ -415,7 +438,7 @@ function KeptSummary({ items, matches, decisions, country, playlistName, playlis
           ))}
         </div>
         <button onClick={copy} disabled={!plan.add.length}>{copied ? 'Copied ✓' : 'Copy'}</button>
-        {canShare && <button className="secondary" onClick={share} disabled={!plan.add.length} title="Share sheet: pick the shortcut directly">Share…</button>}
+        {canShare && <button className="secondary" onClick={share} disabled={!plan.add.length} title="Share sheet: pick Anisong Add Kept directly">Share…</button>}
         <span className="spacer" />
         <button className="secondary" onClick={markAdded} disabled={!plan.add.length} title="Record these as added so they're held back from future exports">I added these ({plan.add.length})</button>
       </div>
@@ -425,7 +448,7 @@ function KeptSummary({ items, matches, decisions, country, playlistName, playlis
           <button className="link" onClick={async () => { await onUndo(lastBatch.id); setLastBatch(null); }}>Undo</button>
         </p>
       )}
-      {plan.add.length > 0 && <textarea className="export" readOnly value={output} rows={Math.min(8, Math.max(2, plan.add.length))} onFocus={(e) => e.currentTarget.select()} />}
+      {plan.add.length > 0 && <textarea className="export" readOnly value={output} rows={Math.min(8, Math.max(2, plan.add.length))} onFocus={(e) => e.currentTarget.select()} aria-label="Export" />}
       <ol className="kept">
         {plan.add.map((i) => (
           <li key={i.key}>
@@ -437,11 +460,11 @@ function KeptSummary({ items, matches, decisions, country, playlistName, playlis
       </ol>
       {plan.held.length > 0 && (
         <details className="held" open={plan.held.length <= 5}>
-          <summary>Held back ({plan.held.length}): duplicates aren't exported</summary>
+          <summary>Held back ({plan.held.length}): likely duplicates aren't exported</summary>
           <ul>
             {plan.held.map((h) => (
-              <li key={h.item.key}>
-                <span className="badge in-playlist">{REASON_LABEL[h.reason]}</span>{' '}
+              <li key={h.item.key} data-reason={h.reason} data-tier={h.hit?.tier}>
+                <span className={`badge ${h.reason === 'likely-in-playlist' || h.reason === 'other-version' ? 'warn' : 'in-playlist'}`}>{REASON_LABEL[h.reason]}</span>{' '}
                 <strong>{h.item.title}</strong> <span className="muted">— {h.item.artist} · {h.item.label} · matches {h.detail}</span>
                 {h.overridable && <label className="small"> <input type="checkbox" checked={overrides.has(h.item.key)} onChange={() => toggle(h.item.key)} /> add anyway</label>}
               </li>
@@ -450,5 +473,72 @@ function KeptSummary({ items, matches, decisions, country, playlistName, playlis
         </details>
       )}
     </section>
+  );
+}
+
+/**
+ * Playlist status plus a paste box, so the snapshot can be refreshed right
+ * before exporting: paste what Anisong Export Playlist copied (or a Mac
+ * export / ⌘C rows). Saving replaces the snapshot with the same name.
+ */
+function PlaylistSync({ snapshot, playlistName, onSnapshot }: { snapshot: PlaylistSnapshot | null; playlistName: string; onSnapshot: (s: PlaylistSnapshot) => void }) {
+  const stale = !snapshot || Date.now() - snapshot.importedAt > STALE_MS;
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState('');
+  const [parsed, setParsed] = useState<ParseResult | null>(null);
+  const [saved, setSaved] = useState<number | null>(null);
+
+  const onText = (v: string) => { setText(v); setParsed(v.trim() ? parsePlaylist(v) : null); setSaved(null); };
+  const save = async () => {
+    if (!parsed?.rows.length) return;
+    const s = snapshotFromParse(parsed, playlistName);
+    await saveSnapshot(s);
+    onSnapshot(s);
+    setSaved(s.rows.length); setText(''); setParsed(null); setOpen(false);
+  };
+  const otherName = parsed?.playlistName && parsed.playlistName.trim() !== playlistName.trim() ? parsed.playlistName : null;
+
+  return (
+    <div className="sync">
+      <div className="row small">
+        {snapshot ? (
+          <span>
+            Playlist: <strong>{snapshot.name}</strong> · {snapshot.rows.length} songs · synced {ago(snapshot.importedAt)}
+            {' '}<span className="badge" title={snapshot.warnings.join('\n') || undefined}>{SNAPSHOT_SOURCE[snapshot.format]}</span>
+          </span>
+        ) : <span className="muted">No playlist synced: only songs added through the app (its add log) are checked.</span>}
+        <button className="secondary" onClick={() => setOpen((o) => !o)} aria-expanded={open}>{open ? 'Close' : 'Sync playlist'}</button>
+        {saved !== null && <span className="ok-text">Synced {saved} songs ✓</span>}
+      </div>
+      {stale && !open && (
+        <p className="warn-text small">
+          {snapshot ? `Your playlist snapshot is ${ago(snapshot.importedAt)} old.` : 'Sync your playlist to catch songs added outside the app.'}{' '}
+          Run <strong>Anisong Export Playlist</strong> on your iPhone, then <button className="link" onClick={() => setOpen(true)}>paste it here</button>.
+          {' '}The add log still covers songs added through the app.
+        </p>
+      )}
+      {open && (
+        <div className="import">
+          <p className="muted small">
+            Paste what <strong>Anisong Export Playlist</strong> copied. A Music.app export or rows copied with <kbd>⌘C</kbd> work too.
+          </p>
+          <textarea className="paste" value={text} onChange={(e) => onText(e.target.value)} rows={4} spellCheck={false} placeholder="anisong-playlist v1 …" aria-label="Paste playlist to sync" />
+          {parsed && (
+            <>
+              <p className="small">
+                <strong>{parsed.rows.length} songs</strong>{parsed.playlistName && <> from <strong>{parsed.playlistName}</strong></>}
+                <span className="muted"> · {parsed.format === 'shortcut' ? 'iPhone shortcut' : parsed.format === 'export' ? 'Mac export' : parsed.format === 'pasted' ? 'pasted rows' : ''}</span>
+              </p>
+              {otherName && <p className="warn-text small">This is “{otherName}”, not your target playlist “{playlistName}”.</p>}
+              {parsed.warnings.length > 0 && <ul className="warnings small">{parsed.warnings.map((w) => <li key={w}>{w}</li>)}</ul>}
+            </>
+          )}
+          <div className="row">
+            <button onClick={save} disabled={!parsed?.rows.length}>Save {parsed?.rows.length ? `${parsed.rows.length} songs` : 'snapshot'}</button>
+            <button className="secondary" onClick={() => { setOpen(false); onText(''); }}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
