@@ -323,31 +323,59 @@ Edge cases:
 - **Rewatches** may already be in the playlist. The duplicate check (§9.4)
   handles this.
 - **Seasons and sequels** are separate media with separate themes.
-- A toggle to include or exclude dropped shows. Default on, per the brief.
+- Dropped and paused shows are listed (each can be turned off) but never
+  pre-selected by a quick start (§8.1).
 
 ### 8.1 Picking which anime to add
-The list asks **"Which anime would you like to add?"** and is a navigable
-multi-select: each row has a checkbox, selected rows are tinted, and the rest
-are dimmed. The "last show added" is the quick way in, not the only one.
+The page asks **"Which anime would you like to add?"**: quick starts on the
+left, a navigable multi-select list on the right, and a footer that stays in
+view. The "last show added" is the quick way in, not the only one.
 
-- **Model** (`selection.ts`): a **base** plus per-show **include** and
-  **exclude** lists of AniList IDs. Bases:
-  - `newer`: everything more recent than the last show added (`boundId`), or
-    everything with no bound. This is the default; shows you finish later join
-    automatically.
-  - `all` or `none`.
-  Hand edits survive the list growing or being re-sorted. Stored in settings.
-- **Mouse:** click or the checkbox toggles a show; **Shift**-click sets the range
-  from the last click to the same state; **Alt/Option**-click marks a show as the
-  last added (selects everything newer); **Cmd/Ctrl**-click selects only that
-  show.
-- **Keyboard** (list focused): `↑`/`↓` or `J`/`K` move; `Space` toggles;
-  `Shift`+`↑`/`↓` extends; `L` marks the last added; `A`, `N` and `I` select all,
-  none, or invert; `↵` finds songs.
-- **Toolbar:** a live "N of M selected" with a description of the selection,
-  All / None / Invert, and "Newer than last added" to reset hand edits.
-- **The V2 suggestion** (§9.5) and the import panel's "Use as last show" set the
-  bound and reset to `newer`.
+- **Model** (`selection.ts`): a **base** (the quick start) plus per-show
+  **include** and **exclude** lists of AniList IDs. Bases:
+  - `newer` (**After the last show added**): everything more recent than
+    `boundId`, or everything with no bound. The default; shows you finish
+    later join automatically.
+  - `since` (**Finished since** a date): completed shows whose AniList
+    completion date is on or after it. Completion date only, so it means
+    "everything I finished since my last session"; the date defaults to the
+    last session. *Provisional: under review, since `newer` may already
+    cover it.* The page explains this under a "?".
+  - `latest` (**The last N shows I finished**): the N most recently
+    completed shows.
+  - `none` (**Pick by hand**) and `all` (the `A` key).
+
+  `newer`, `since` and `latest` always include shows in progress (Watching,
+  Rewatching; an airing show with no songs listed yet never blocks the
+  lookup) and never pre-select dropped or paused ones. Switching quick
+  starts keeps hand edits ("N hand changes · reset" in the footer) and
+  remembers the date and N. Stored in settings.
+- **The list:** cover, title, format (when not TV), a status line
+  ("Completed Nov 3", "Watching · ep 7 · airing", "Dropped · updated Sep 2"),
+  a ♪ song count from cached lookups only ("–" for none, "?" when not looked
+  up yet) and, with a playlist, "n/m in playlist". Grouped by season of the
+  sort date (Watching now first when newest-first), each group with a
+  selected count and a toggle. A **divider** marks the last show added:
+  everything above it (newest-first) is newer.
+- **Filter:** `/` focuses it; it matches any title script; Esc clears it.
+  Filtering hides rows without changing the selection.
+- **Mouse:** click toggles a show; **Shift**-click sets the range from the last
+  click to the same state; **Alt/Option**-click marks a show as the last added
+  (selects everything newer); **Cmd/Ctrl**-click selects only that show.
+- **Keyboard** (anywhere on the page unless typing): `↑`/`↓` or `J`/`K` move;
+  `Space` toggles; `Shift`+`↑`/`↓` extends; `L` marks the last added; `A`, `N`
+  and `I` select all, none, or invert; `↵` finds songs.
+- **Footer:** "N shows selected · ~M songs, + K shows not looked up yet" (from
+  the cache), hand changes with reset, and **Find songs**.
+- **The V2 suggestion** (§9.5) appears inline under "After the last show
+  added" ("Your playlist now ends with songs from …"); **Use** sets the bound
+  and switches to `newer`.
+- **Finding songs is a footer, not a page.** Find songs locks the list and
+  turns the footer into a progress bar ("Looking up songs · 9 of 14 shows · 23
+  songs so far", Cancel); each row shows its state (looking…, ♪ 3, or why it
+  has none, §9.1). When it finishes, Review opens by itself. Shows without
+  songs are summarized in one line and never block. Only an AnimeThemes
+  failure stops it, with **Retry** and **Review the rest**.
 
 
 ## 9. Technical and integration challenges
@@ -378,8 +406,8 @@ are dimmed. The "last show added" is the quick way in, not the only one.
   - Only an AnimeThemes failure is an error (uncached, retried next time).
   - AnimeThemes requests get 30 s.
 - **No songs is normal for some formats.** Movies, specials, OVAs and shorts
-  often have no OP/ED, or one theme song not listed as either. The songs step
-  labels them by format ("Movie · no opening/ending listed", neutral) and
+  often have no OP/ED, or one theme song not listed as either. The song
+  lookup (§8.1) labels them by format ("Movie · no opening/ending listed", neutral) and
   keeps the warning style for TV and ONA series. A show still airing gets
   the neutral "airing · songs not listed yet" (rechecked weekly, as above).
   Music videos skip Jikan.
