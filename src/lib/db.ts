@@ -3,6 +3,7 @@ import type { Show, ThemeLookup } from '../types';
 import type { ThemeCache } from './themes';
 import type { MatchResult } from './matching';
 import type { PlaylistRow } from './playlistImport';
+import type { AddedRecord } from './dedupe';
 
 export type DecisionValue = 'keep' | 'skip' | 'later';
 export interface Decision {
@@ -33,6 +34,8 @@ export class CuratorDB extends Dexie {
   matches!: EntityTable<MatchResult, 'key'>;
   decisions!: EntityTable<Decision, 'key'>;
   playlistSnapshots!: EntityTable<PlaylistSnapshot, 'name'>;
+  /** Add log (SPEC §9.4): songs the user confirmed adding via the shortcut. */
+  added!: EntityTable<AddedRecord & { id?: number }, 'id'>;
 
   constructor(name = 'anisong-curator') {
     super(name);
@@ -49,6 +52,10 @@ export class CuratorDB extends Dexie {
     // v3 (M6): imported playlist snapshots, for tail inference and duplicate checks.
     this.version(3).stores({
       playlistSnapshots: 'name, importedAt',
+    });
+    // v4: add log for duplicate prevention.
+    this.version(4).stores({
+      added: '++id, trackId, batchId, addedAt',
     });
   }
 }

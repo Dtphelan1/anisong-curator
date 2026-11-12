@@ -147,38 +147,77 @@ duplicates. That's a fine outcome for the spike. It just changes M4.
 
 ---
 
-## 4. `Anisong Add Kept`: add the app's kept list to a playlist
+## 4. `Anisong Add Kept`: add the kept list, skipping duplicates
 
-This is the shortcut the app's **Kept** section is built for. In the app, pick
-**Links (Shortcut)**, press **Copy** (or **Share…** on a secure origin), then
-run this shortcut. It accepts any text containing `music.apple.com` links, so
-the **Text + links** format works too. Songs are added in the order the links
-appear.
+This is the shortcut the app's **Kept** section is built for. In the app, keep
+the **Shortcut** format, press **Copy** (or **Share…** on a secure origin), then
+run this shortcut. Each line is one song:
+
+```
+Gurenge | LiSA | https://music.apple.com/us/song/1538286723
+```
+
+The app has already removed known duplicates (SPEC §9.4). This shortcut is the
+safety net for songs added to the playlist outside the app since your last
+export: it skips any line whose `title | artist` already matches a song in the
+playlist. Songs are added in the order of the lines.
 
 Actions:
 1. *Receive **Text** input from **Share Sheet***; *If there's no input*:
-   **Get Clipboard**.
-2. **Get URLs from Input** (*Shortcut Input*). This extracts every link, in order.
-3. **Count** *Items* in *URLs*. **If** *Count* *is* `0`: **Show Alert**
-   "No Apple Music links found", then **Stop This Shortcut**. **End If**.
-4. **Choose from Menu** with the prompt "Add *Count* songs to…":
-   - **My playlist**: **Repeat with Each** *URL* → **Add to Playlist**
-     *‹your playlist›* → **End Repeat**.
-   - **New staging playlist**: **Create Playlist** named
-     `anisong-curator ` + *Current Date* (short), with items *URLs*.
-5. **Show Notification** "Added *Count* songs".
+   **Get Clipboard**. **Set Variable** `Input`.
+2. **Find Music** where **Playlist** *is* **🔥 AniSong MegaMix** (no limit,
+   no sort).
+3. **Repeat with Each** item in *Music*:
+   **Text** `‹Repeat Item › Name› | ‹Repeat Item › Artist›` → **End Repeat**.
+4. **Combine Text** *Repeat Results* with **New Lines** → **Change Case** to
+   **lowercase** → **Set Variable** `Existing`.
+5. **Split Text** `Input` by **New Lines** → **Repeat with Each** line:
+   - **If** *Repeat Item* *contains* `music.apple.com`:
+     - **Split Text** *Repeat Item* by **Custom** ` | ` (space, bar, space).
+     - **Get Item from List**: item **1** → **Set Variable** `Title`.
+       Item **2** → **Set Variable** `Artist`.
+     - **Text** `‹Title› | ‹Artist›` → **Change Case** **lowercase** →
+       **Set Variable** `Key`.
+     - **If** `Existing` *contains* `Key`: **Add to Variable** `Skipped`
+       (the Title).
+       **Otherwise**: **Get URLs from Input** (*Repeat Item*) →
+       **Add to Variable** `ToAdd`.
+     - **End If**.
+   - **End If**.
+6. **End Repeat**. If `ToAdd` has no items: **Show Alert** "Nothing new to
+   add (skipped *Count of Skipped*)", then **Stop This Shortcut**.
+7. **Choose from Menu**: "Add *Count of ToAdd* songs to…":
+   - **🔥 AniSong MegaMix**: **Repeat with Each** in `ToAdd` → **Add to
+     Playlist** **🔥 AniSong MegaMix** → **End Repeat**.
+   - **New staging playlist**: **Create Playlist** `anisong-curator ‹Current
+     Date›` with items `ToAdd`.
+8. **Show Notification** "Added *Count of ToAdd*, skipped *Count of Skipped*
+   duplicates".
 
-Siri prompt (paste or dictate):
+Siri prompt (paste or dictate; replace the playlist name if it changes):
 
-> Make a shortcut called "Anisong Add Kept" that takes text from the share
-> sheet or, if there's no input, from the clipboard. Get all the URLs from that
-> text. If there are none, show an alert saying "No Apple Music links found"
-> and stop. Otherwise ask me with a menu whether to add them to my playlist
-> "‹playlist name›" or to a new playlist named "anisong-curator" plus today's
-> date. For my playlist, add each URL to the playlist one at a time, in order.
-> For a new playlist, create it with all the URLs. Finish with a notification
-> saying how many songs were added.
+> Update my shortcut "Anisong Add Kept" (or create it). It takes text from the
+> share sheet or, if there's no input, from the clipboard. First, find all songs
+> in my playlist "🔥 AniSong MegaMix" and make a lowercase list where each line
+> is the song's name, then " | ", then its artist. Then go through the input
+> text line by line. Skip lines that don't contain "music.apple.com". For the
+> others, split the line by " | ": the first part is the title and the second
+> is the artist. Make a lowercase "title | artist" key. If the playlist list
+> already contains that key, add the title to a Skipped list. Otherwise add the
+> line's URL to a To Add list. If To Add is empty, show an alert "Nothing new to
+> add" and stop. Otherwise ask with a menu whether to add the To Add songs one
+> at a time, in order, to "🔥 AniSong MegaMix", or to create a new playlist named
+> "anisong-curator" plus today's date with them. Finish with a notification
+> saying how many were added and how many duplicates were skipped.
 
-This doubles as spike 1. If **Add to Playlist** refuses the links or adds
-nothing, note the exact error. That decides whether adding can be automated
-or falls back to opening each link and tapping **+**.
+**Pick the playlist from the action's picker** rather than typing its name; the
+🔥 emoji makes typed names easy to get wrong.
+
+Notes:
+- The `contains` check is plain text, so it's stricter than the app's: a song
+  whose library name differs from the catalog name (e.g. added from another
+  storefront) can slip through. The app's check is the primary one.
+- **Quick test worth doing once:** run the shortcut twice with the same song
+  and the duplicate check temporarily removed. If **Add to Playlist** already
+  refuses duplicates by itself, note it. The check stays either way, since a
+  silent duplicate can't be undone from Shortcuts.

@@ -305,17 +305,56 @@ ISRC**.
 - **`isStreamable`** may be false for some tracks. Down-rank them, because
   Shortcuts can't add them as streaming tracks.
 
-### 9.4 Duplicates without catalog IDs or ISRCs
-Duplicate sources, best first:
-1. **`CommitLog`**: an exact `trackId` that the app has already sent. Skip.
-2. **Snapshot match**: normalized title + artist, with duration within ±3 s.
-   Default: skip.
-3. **Same title + artist, different duration** (TV size vs full, remaster).
-   Default: ask.
+### 9.4 Duplicate prevention
 
-Since playlist reads only cover the tail, older duplicates (e.g. a rewatched
-show's OP added years ago) are caught by the CommitLog only if the app added
-them. Optionally, import the **whole** playlist once (§9.6) to seed the snapshot.
+**Goal:** never add a song that is already in the target playlist, without
+silently dropping one you meant to add. No API offers a duplicate prompt or
+lets us remove a track afterwards, so prevention has to happen before adding.
+
+**What counts as a duplicate.** The playlist only exposes names, not catalog
+IDs or ISRCs, so matching is by name:
+
+| Kind | Rule | Default |
+|---|---|---|
+| **Repeat in batch** | Same `trackId`, or same normalized title + artist, twice in one export (e.g. one song used by two shows) | Drop the extras, always |
+| **Already added** | In the app's add log (below), by `trackId` or title + artist | Hold back, can override |
+| **In playlist** | Same normalized title + artist as a playlist-snapshot row, duration within ±3 s (or unknown) | Hold back, can override |
+| **Other version** | Same core title (version suffixes stripped) + artist, different duration: TV size vs full, a remaster | Hold back, can override |
+
+"Hold back" means the song stays out of the export, listed with its reason
+and an **add anyway** checkbox.
+
+**Layer 1: the app (primary).** It knows the most.
+- *Sources:* the imported playlist snapshot (§9.6), plus an **add log**: when
+  you press **"I added these"** after running the shortcut, the exported batch
+  is recorded (`trackId`, title, artist, duration, batch, time). The log
+  covers what the app added since the last export, so you don't need to
+  re-import after every session.
+- *Review:* songs already in the snapshot or the log get an "already in
+  playlist" or "other version in playlist" badge, and can be hidden.
+- *Export:* the Kept section splits into **To add** and **Held back (reason)**.
+  Only **To add** is copied.
+
+**Layer 2: the shortcut (safety net).** It catches anything added outside the
+app since the last export. The export's **Shortcut** format puts one song per
+line, as `Title | Artist | https://music.apple.com/…`. The shortcut:
+1. Reads the target playlist's songs (**Find Music** where Playlist is the
+   target) and builds `name | artist` lines, lowercased.
+2. For each input line, builds the same `title | artist` key, lowercased.
+3. Skips the song if the key is already present, otherwise collects its URL.
+4. Adds the collected URLs, or creates a staging playlist, and reports
+   "added N, skipped M".
+
+Title + artist names in the library match the catalog's names in the user's
+storefront, which are what the app exports. A song you added from a
+*different* storefront could slip past, and Layer 1's title + artist
+normalization is more forgiving than the shortcut's exact-text check. That's
+why Layer 1 is primary.
+
+**Open:** does the Shortcuts **Add to Playlist** action already skip songs
+that are in the playlist? (The Music app asks; Shortcuts may add silently.)
+Layer 2 is needed either way, because a silent duplicate can't be undone from
+Shortcuts.
 
 ### 9.5 V2: inferring the lower bound from the playlist tail
 1. **Import the playlist** (M6): Music.app → File → Library → Export

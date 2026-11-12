@@ -4,7 +4,9 @@ import type { DecisionValue } from '../lib/db';
 import { lookup, parseAppleMusicUrl, searchSongs, songUrl, type ItunesTrack } from '../lib/itunes';
 import { confidenceOf, rankTracks, type Flag, type MatchPrefs } from '../lib/matcher';
 import type { Candidate, MatchResult } from '../lib/matching';
-import { chosenTrack, findInPlaylist, type InPlaylist, type PlaylistIndex } from '../lib/tailInference';
+import { chosenTrack, findInPlaylist, indexPlaylist, type InPlaylist, type PlaylistIndex } from '../lib/tailInference';
+import { addedAsRows, planExport, REASON_LABEL, shortcutLine, type AddedRecord, type ExportItem } from '../lib/dedupe';
+import { useAdded } from '../lib/useAdded';
 import { useDecisions, useMatching, type ReviewItem } from '../lib/useMatching';
 
 interface Props {
@@ -43,16 +45,21 @@ export function Review({ items, country, prefs, autoplay, playlist = null, playl
   const chosen = match?.candidates.find((c) => c.track.trackId === match.chosenId);
   const decision = item ? decisions.get(item.key) : undefined;
 
+  const { added, record, undoBatch } = useAdded();
+  const addedIdx = useMemo(() => (added.length ? indexPlaylist(addedAsRows(added)) : null), [added]);
   const inPlaylist = useMemo(() => {
     const m = new Map<string, InPlaylist>();
-    if (!playlist) return m;
+    if (!playlist && !addedIdx) return m;
     for (const it of items) {
       const t = chosenTrack(matches.get(it.key));
-      const hit = t && findInPlaylist(playlist, t);
+      if (!t) continue;
+      // Exact hits in either source beat "other version" hits.
+      const hits = [playlist && findInPlaylist(playlist, t), addedIdx && findInPlaylist(addedIdx, t)].filter((h): h is InPlaylist => !!h);
+      const hit = hits.find((h) => h.kind === 'duplicate') ?? hits[0];
       if (hit) m.set(it.key, hit);
     }
     return m;
-  }, [playlist, items, matches]);
+  }, [playlist, addedIdx, items, matches]);
   const hidden = useCallback((i: number) => hideInPlaylist && inPlaylist.get(items[i]!.key)?.kind === 'duplicate', [hideInPlaylist, inPlaylist, items]);
   const dupCount = useMemo(() => [...inPlaylist.values()].filter((x) => x.kind === 'duplicate').length, [inPlaylist]);
 
@@ -136,8 +143,8 @@ export function Review({ items, country, prefs, autoplay, playlist = null, playl
           {counts.pending > 0 && <span className="muted">· matching {counts.pending} more (~{Math.ceil(counts.pending * 1.7 * 3 / 60)} min)</span>}
           <span className="spacer" />
           <label><input type="checkbox" checked={onlyUndecided} onChange={(e) => setOnlyUndecided(e.target.checked)} /> Undecided only</label>
-          {playlist && (
-            <label title="Same title and artist (±3 s) as a song in your imported playlist">
+          {(playlist || added.length > 0) && (
+            <label title="Same title and artist (±3 s) as a song in your imported playlist or the app's add log">
               <input type="checkbox" checked={hideInPlaylist} onChange={(e) => setHideInPlaylist(e.target.checked)} /> Hide already in playlist ({dupCount})
             </label>
           )}
@@ -190,7 +197,7 @@ export function Review({ items, country, prefs, autoplay, playlist = null, playl
       </section>
 
       <Queue items={items} index={index} onPick={setIndex} matches={matches} status={status} decisions={decisions} inPlaylist={inPlaylist} />
-      <KeptSummary items={items} matches={matches} decisions={decisions} country={country} playlistName={playlistName} />
+      <KeptSummary items={items} matches={matches} decisions={decisions} country={country} playlistName={playlistName} playlist={playlist} added={added} onRecord={record} onUndo={undoBatch} />
     </>
   );
 }
@@ -337,50 +344,67 @@ function Queue({ items, index, onPick, matches, status, decisions, inPlaylist }:
   );
 }
 
-type ExportFormat = 'links' | 'text' | 'json';
+type ExportFormat = 'shortcut' | 'text' | 'json';
 const EXPORT_KEY = 'anisong-curator.exportFormat';
 const EXPORT_FORMATS: { value: ExportFormat; label: string; hint: string }[] = [
-  { value: 'links', label: 'Links (Shortcut)', hint: 'One Apple Music link per line: what the Add Kept shortcut expects' },
+  { value: 'shortcut', label: 'Shortcut', hint: 'Title | Artist | link, one per line: what the Add Kept shortcut expects' },
   { value: 'text', label: 'Text + links', hint: 'Readable: song, artist, show, then the link' },
   { value: 'json', label: 'JSON', hint: '{country, ids}: for the spike Add Tracks shortcut' },
 ];
 
-function KeptSummary({ items, matches, decisions, country, playlistName }: {
-  items: ReviewItem[]; matches: Map<string, MatchResult>; decisions: Map<string, { decision: DecisionValue; trackId: number | null }>; country: string; playlistName: string;
+function KeptSummary({ items, matches, decisions, country, playlistName, playlist, added, onRecord, onUndo }: {
+  items: ReviewItem[]; matches: Map<string, MatchResult>; decisions: Map<string, { decision: DecisionValue; trackId: number | null }>;
+  country: string; playlistName: string; playlist: PlaylistIndex | null; added: AddedRecord[];
+  onRecord: (items: ExportItem[]) => Promise<string>; onUndo: (batchId: string) => Promise<void>;
 }) {
   const [copied, setCopied] = useState(false);
+  const [overrides, setOverrides] = useState<Set<string>>(new Set());
+  const [lastBatch, setLastBatch] = useState<{ id: string; n: number } | null>(null);
   const [format, setFormatState] = useState<ExportFormat>(() => {
-    try { const v = localStorage.getItem(EXPORT_KEY); return EXPORT_FORMATS.some((f) => f.value === v) ? (v as ExportFormat) : 'links'; } catch { return 'links'; }
+    try { const v = localStorage.getItem(EXPORT_KEY); return EXPORT_FORMATS.some((f) => f.value === v) ? (v as ExportFormat) : 'shortcut'; } catch { return 'shortcut'; }
   });
   const setFormat = (f: ExportFormat) => { setFormatState(f); try { localStorage.setItem(EXPORT_KEY, f); } catch { /* private mode */ } };
-  const kept = items.flatMap((it) => {
+
+  const exportItems = useMemo(() => items.flatMap<ExportItem>((it) => {
     const d = decisions.get(it.key);
     if (d?.decision !== 'keep' || !d.trackId) return [];
-    const c = matches.get(it.key)?.candidates.find((x) => x.track.trackId === d.trackId);
-    return [{ it, trackId: d.trackId, track: c?.track }];
-  });
-  if (!kept.length) return null;
+    const t = matches.get(it.key)?.candidates.find((x) => x.track.trackId === d.trackId)?.track;
+    return [{
+      key: it.key, trackId: d.trackId,
+      title: t?.trackName ?? it.theme.songTitle ?? '', artist: t?.artistName ?? it.theme.artists.join(', '),
+      durationMs: t?.trackTimeMillis ?? null, url: songUrl(d.trackId, country),
+      label: `${displayTitle(it.show)} ${it.theme.slug}`,
+    }];
+  }), [items, decisions, matches, country]);
+  const plan = useMemo(() => planExport(exportItems, { playlist, added, overrides }), [exportItems, playlist, added, overrides]);
+  if (!exportItems.length && !lastBatch) return null;
 
-  const lines = kept.map(({ it, trackId, track }) => ({
-    url: songUrl(trackId, country),
-    text: `${track?.trackName ?? it.theme.songTitle} — ${track?.artistName ?? it.theme.artists.join(', ')} (${displayTitle(it.show)} ${it.theme.slug})`,
-  }));
   const output =
-    format === 'links' ? lines.map((l) => l.url).join('\n')
-    : format === 'text' ? lines.map((l) => `${l.text} ${l.url}`).join('\n')
-    : JSON.stringify({ country, ids: kept.map((k) => k.trackId) });
+    format === 'shortcut' ? plan.add.map(shortcutLine).join('\n')
+    : format === 'text' ? plan.add.map((i) => `${i.title} — ${i.artist} (${i.label}) ${i.url}`).join('\n')
+    : JSON.stringify({ country, ids: plan.add.map((i) => i.trackId) });
   const copy = async () => {
     try { await navigator.clipboard.writeText(output); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { prompt('Copy:', output); }
   };
   const canShare = typeof navigator !== 'undefined' && 'share' in navigator && window.isSecureContext;
   const share = async () => { try { await navigator.share({ text: output }); } catch { /* cancelled */ } };
+  const toggle = (key: string) => setOverrides((o) => { const n = new Set(o); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  const markAdded = async () => {
+    if (!plan.add.length) return;
+    if (!confirm(`Record ${plan.add.length} song(s) as added to "${playlistName}"? They'll be held back from future exports.`)) return;
+    const n = plan.add.length;
+    const id = await onRecord(plan.add);
+    setOverrides(new Set());
+    setLastBatch({ id, n });
+  };
 
   return (
     <section className="card">
-      <h2>Kept ({kept.length})</h2>
+      <h2>Kept · {plan.add.length} to add{plan.held.length > 0 && <span className="muted"> · {plan.held.length} held back</span>}</h2>
       <p className="muted">
-        In playlist order (oldest show first). Copy the list, then run the <strong>Anisong Add Kept</strong> shortcut
-        to add them to <strong>{playlistName}</strong> (or a new staging playlist) in this order.
+        In playlist order (oldest show first). Copy, run the <strong>Anisong Add Kept</strong> shortcut to add them to{' '}
+        <strong>{playlistName}</strong> (or a new staging playlist), then press <strong>I added these</strong> so they're never exported again.
+        {!playlist && ' Import your playlist above to also catch songs added outside the app.'}
       </p>
       <div className="row">
         <div className="segmented" role="radiogroup" aria-label="Export format">
@@ -390,18 +414,41 @@ function KeptSummary({ items, matches, decisions, country, playlistName }: {
             </button>
           ))}
         </div>
-        <button onClick={copy}>{copied ? 'Copied ✓' : 'Copy'}</button>
-        {canShare && <button className="secondary" onClick={share} title="Share sheet: pick the shortcut directly">Share…</button>}
+        <button onClick={copy} disabled={!plan.add.length}>{copied ? 'Copied ✓' : 'Copy'}</button>
+        {canShare && <button className="secondary" onClick={share} disabled={!plan.add.length} title="Share sheet: pick the shortcut directly">Share…</button>}
+        <span className="spacer" />
+        <button className="secondary" onClick={markAdded} disabled={!plan.add.length} title="Record these as added so they're held back from future exports">I added these ({plan.add.length})</button>
       </div>
-      <textarea className="export" readOnly value={output} rows={Math.min(8, Math.max(2, lines.length))} onFocus={(e) => e.currentTarget.select()} />
+      {lastBatch && (
+        <p className="ok small">
+          Recorded {lastBatch.n} song(s) as added.{' '}
+          <button className="link" onClick={async () => { await onUndo(lastBatch.id); setLastBatch(null); }}>Undo</button>
+        </p>
+      )}
+      {plan.add.length > 0 && <textarea className="export" readOnly value={output} rows={Math.min(8, Math.max(2, plan.add.length))} onFocus={(e) => e.currentTarget.select()} />}
       <ol className="kept">
-        {kept.map(({ it, trackId, track }) => (
-          <li key={it.key}>
-            <a href={songUrl(trackId, country)} target="_blank" rel="noopener noreferrer">{track?.trackName ?? it.theme.songTitle}</a>
-            <span className="muted"> — {track?.artistName} · {displayTitle(it.show)} {it.theme.slug}</span>
+        {plan.add.map((i) => (
+          <li key={i.key}>
+            <a href={i.url} target="_blank" rel="noopener noreferrer">{i.title}</a>
+            <span className="muted"> — {i.artist} · {i.label}</span>
+            {overrides.has(i.key) && <button className="link small" onClick={() => toggle(i.key)}>hold back again</button>}
           </li>
         ))}
       </ol>
+      {plan.held.length > 0 && (
+        <details className="held" open={plan.held.length <= 5}>
+          <summary>Held back ({plan.held.length}): duplicates aren't exported</summary>
+          <ul>
+            {plan.held.map((h) => (
+              <li key={h.item.key}>
+                <span className="badge in-playlist">{REASON_LABEL[h.reason]}</span>{' '}
+                <strong>{h.item.title}</strong> <span className="muted">— {h.item.artist} · {h.item.label} · matches {h.detail}</span>
+                {h.overridable && <label className="small"> <input type="checkbox" checked={overrides.has(h.item.key)} onChange={() => toggle(h.item.key)} /> add anyway</label>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </section>
   );
 }
