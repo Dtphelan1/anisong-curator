@@ -109,8 +109,8 @@ or the bundle.
 │ anilist.ts   themes.ts      matcher.ts +    itunes.ts                    │
 │ GraphQL      AnimeThemes    matching.ts     iTunes Search / Lookup       │
 │              + Jikan fb     (scoring)       (fetch, JSONP fallback)      │
-│ playlistImport.ts + dedupe.ts: playlist snapshot, duplicate tiers        │
-│ per-host rate limiting · IndexedDB: caches, decisions, snapshot, add log │
+│ playlistImport.ts + playlistLibrary.ts + dedupe.ts: playlist, dup tiers  │
+│ per-host rate limiting · IndexedDB: caches, decisions, playlist, add log │
 └─────────────────▲───────────────────────────────────────┬────────────────┘
                   │ paste into Sync playlist              │ Copy / Share…
 ┌─────────────────┴──────────── Apple Shortcuts ──────────▼────────────────┐
@@ -141,9 +141,20 @@ Match      { songId, trackId, country, trackName, artistName, collectionName,
 Decision   { themeId, decision: 'keep'|'skip'|'later', decidedAt }
 CommitLog  { runId, trackIds[], target: 'staging'|'append', playlistName, at, confirmed }
 RunCursor  { lastProcessedEntries: {anilistId → updatedAt}, sortField, committedAt }
-PlaylistSnapshot { name, rows[{position, title, artist, album, durationMs}], importedAt,
-                   format: 'export'|'pasted'|'shortcut', ordered, artistsKnown?, warnings[] }  // Dexie v3
+PlaylistItem { id, title, artist, album, durationMs, position, origin: 'import'|'app',
+               trackId?, addedBatch?, addedAt?, anilistIds[],
+               link: null | {state:'linked', via:'add-log'|'exact'|'fuzzy'|'manual', hits[{themeKey, anilistId, slug}], confidence}
+                          | {state:'unlinked', nearest?, manual?} }       // Dexie v5 playlistItems
+PlaylistMeta { name, syncedAt, lastImport: {format, ordered, orderIsPlaylist, artistsKnown,
+               sortedBy, warnings[], rowCount, diff} }                    // meta 'playlist'
+PlaylistUndo { id, at, items[], meta }                                    // Dexie v5 playlistImports (one kept)
 ```
+
+The **playlist library** (§9.6) replaced the v3 `PlaylistSnapshot`, which each
+import overwrote. The v5 migration replays the latest snapshot and the add log
+into it; `playlistSnapshots` stays, unused, for one version as a rollback. A
+snapshot (`{name, rows, importedAt, format, ordered, …}`) is still available
+as a read-only view of the library for screens written against it.
 
 The **add log** (Dexie v4 `added`; the `CommitLog` above in the original design)
 matters more here than it would with MusicKit. The playlist can only be read as
@@ -245,7 +256,7 @@ is the most exact duplicate source (§9.4).
    show in watch order, with summary chips (kept + added anyway, skipped,
    already have and skipped, left for later, not decided), beside three
    steps:
-   1. **Playlist checked:** the snapshot's age and size, and **Sync playlist**
+   1. **Playlist checked:** the playlist's age, size and linked songs, and **Sync playlist**
       (paste what `Anisong Export Playlist` copied, or a Mac export).
    2. **Copy, then run `Anisong Add Kept`:** **Copy N songs** (or **Share to
       the shortcut…**), in watch order. The export format is a small option
@@ -297,7 +308,7 @@ documented.
 - **Durations** are plain whole seconds (e.g. `238`). The parser also accepts
   fractions, `m:ss` and `h:mm:ss` leniently.
 - **Validation:** a section shorter than N isn't zipped. The app warns and
-  matches that snapshot without it (titles only, or no durations). Lines beyond
+  matches that import without it (titles only, or no durations). Lines beyond
   N are ignored, with a warning.
 - **v1** (no `---count---`) is still read. Its lists are aligned by trimming
   trailing blank lines, which can't tell a separator from a blank last value.
@@ -512,14 +523,16 @@ silently dropping one you meant to add. No API offers a duplicate prompt or
 lets us remove a track afterwards, so prevention has to happen before adding.
 
 **App-side only.** The check runs in the app, against two sources:
-- **The playlist snapshot**, refreshed with **Sync playlist** in the Add to
-  playlist step: paste the text `Anisong Export Playlist` copies (format:
-  §6.2), or import a Mac export (§9.5). That step shows the snapshot's age,
-  size and source, and flags it when there's none or it's over 7 days old.
+- **The playlist library** (§9.6), refreshed with **Sync playlist** in the Add
+  to playlist step (or Re-sync from the playlist chip): paste the text
+  `Anisong Export Playlist` copies (format: §6.2), or import a Mac export
+  (§9.5). The import shows what changed before saving. Add to playlist shows
+  the playlist's age, size, source and how many songs are linked, and flags
+  it when there's none or it's over 4 weeks old.
 - **The add log.** When you press **Yes, mark as added** after running
   `Anisong Add Kept`, the exported batch is recorded (`trackId`, title, artist,
   duration, batch, time; undoable). It covers what the app added since the
-  last sync, so a stale snapshot still catches the app's own additions.
+  last sync, so a stale playlist still catches the app's own additions.
 
 `Anisong Add Kept` is the simple shortcut (§6.1): it adds every link it's
 given. The earlier design's second layer, a diff inside the add shortcut, is
@@ -529,7 +542,7 @@ exact text.
 **Likelihood, not equality.** The playlist exposes only names (no catalog
 IDs or ISRCs), and the same song is often named differently: 紅蓮華 vs
 "Gurenge", "Revenge of B" vs "B no Revenge", "SCANDAL (JP)" vs "SCANDAL". Each
-kept song is scored against the snapshot rows and the add log
+kept song is scored against the playlist's songs and the add log
 (`dedupe.ts`):
 - **Names on the song's side:** the catalog title and artist, plus the
   theme's romaji/native titles and artists (AnimeThemes), plus the track's
@@ -541,11 +554,16 @@ kept song is scored against the snapshot rows and the add log
   all the song's titles.
 - **Artist similarity:** best over the song's artists × the row's artists
   split on `&`, `,`, `feat.` …; one name inside the other counts 0.95. No
-  artist on a side (or a snapshot whose lists didn't line up) is *unknown*,
+  artist on a side (or an import whose lists didn't line up) is *unknown*,
   not a mismatch.
 - **Duration:** within ±3 s supports "same recording"; ≥ 20 s apart, or a
   TV size / live / remix / acoustic / instrumental flag on one side only,
   means another cut.
+- **Theme level:** a playlist row linked (confidence ≥ 0.8) to the same OP/ED
+  as the kept song, or an add-log record with the same theme key, is at least
+  **likely duplicate** even when the names share nothing (a translated
+  title); another cut of it is **other version**. A stronger name match still
+  wins. The hold reason says "linked to this song".
 
 | Tier | Rule | Default |
 |---|---|---|
@@ -594,17 +612,15 @@ Shortcuts.
    Playlist… (Plain Text: tab-separated, usually UTF-16LE + BOM with CR line
    endings, `Time` in seconds; columns found by header name), or ⌘C rows
    pasted from the song list (no header; Name / m:ss Time / Artist / Album are
-   guessed and shown for checking). It is saved as a `PlaylistSnapshot`, and
-   the last n = 30 rows are the tail. **Only an ordered snapshot has a
-   tail.** Music.app exports (and copies) rows in the window's current sort,
-   not playlist order: if ≥ 90% of the adjacent pairs that differ run one way
-   by Name, Artist or Album, the snapshot is marked `ordered: false` and the
-   app asks for an export with View → Sort By → Playlist Order. Text from
-   `Anisong Export Playlist` is always `ordered: false` (§6.2). An unordered
-   snapshot still feeds the duplicate check, but no bound is suggested from
-   it. This replaces the `Anisong Read Tail` shortcut
-   for reading: no x-callback round trip, and the whole playlist arrives at
-   once. Parser: `playlistImport.ts`; inference: `tailInference.ts`.
+   guessed and shown for checking). It goes into the playlist library (§9.6).
+   Music.app exports (and copies) rows in the window's current sort, not
+   playlist order: if ≥ 90% of the adjacent pairs that differ run one way by
+   Name, Artist or Album, the import is marked `ordered: false` and the app
+   asks for an export with View → Sort By → Playlist Order. Text from
+   `Anisong Export Playlist` is always `ordered: false` (§6.2). This replaces
+   the `Anisong Read Tail` shortcut for reading: no x-callback round trip, and
+   the whole playlist arrives at once. Parser: `playlistImport.ts`; matching:
+   `tailInference.ts`; the library: `playlistLibrary.ts`.
 2. Build an index of normalized `title|artist` keys from the themes of every
    Bucket A/B show. This needs one-time theme resolution for the whole list.
    With batched GraphQL lookups that's ~10 requests for 500 shows, a few
@@ -620,27 +636,57 @@ Shortcuts.
    named): a title alone ("Personal" by someone else) is not evidence.
    Fixture result on US-store names (translated, mistranslated, localized
    artists, plus same-title non-anisongs and covers): 19/19 rows right.
-4. Suggest the hit with the **greatest position in the current sort order**,
-   not simply the last playlist track. Playlist order and watch order disagree
-   whenever songs were added out of order. Show the mapped tail so you can
-   confirm or override.
+4. Suggest **the most recently watched show with a linked song** (completion
+   date, else last list update), not simply the last playlist track: playlist
+   order and watch order disagree whenever songs were added out of order.
+   Because every song is linked, this works from an unordered import too.
+   When the stored order is playlist order, the show of the last linked row is
+   reported alongside as a cross-check when it differs.
 
 Once saved state (§7) exists, V2 becomes a drift check: does the tail match
 the CommitLog?
 
 ### 9.6 Other
-- **Playlist snapshots.** Three sources feed the one snapshot (§5.1), each
-  holding the whole playlist for the §9.4 check:
-  - **Mac export** (§9.5): ordered unless the window was sorted by a column;
-    the only source for "suggest last show".
+- **Playlist library.** The one playlist (§5.1) as songs that persist across
+  imports, each linked to what the app knows. Three sources feed it, each
+  holding the whole playlist:
+  - **Mac export** (§9.5): ordered unless the window was sorted by a column.
   - **`Anisong Export Playlist`** text (§6.2), pasted into **Sync playlist**
     on any device: `ordered: false`, because the order **Find Music** returns
     is unverified. If its lists don't line up, artists (or durations) are
-    dropped for that snapshot (`artistsKnown: false`) rather than zipped.
+    dropped for that import (`artistsKnown: false`) rather than zipped.
   - **⌘C rows** pasted from Music: columns guessed.
 
-  Saving replaces the snapshot with the same name. Sync before exporting
-  whenever the playlist changed outside the app.
+  **Import:** nothing is saved until you've seen the diff. A row is the same
+  song when its normalized title and artist match and its length is within
+  ±3 s (true repeats stay separate). Then: songs the app added that the
+  import contains are **confirmed**; leftover old × new rows at the
+  duplicate tier are **renamed** (the link is kept); the rest are **new** or
+  **missing**. Missing songs drop out of the library; deliberate deletes
+  aren't tracked, so one that comes up again is suggested like any other
+  song. **Undo last sync** restores the previous library (one step).
+
+  **Order:** an ordered import sets every position. An unordered one keeps the
+  stored order (renamed and unchanged songs stay put), appends its new songs
+  and drops the missing ones; it never reorders. **Yes, mark as added**
+  appends the batch at once, in watch order; a later ordered import shows
+  where they really are, and one that doesn't contain them leaves them as
+  **added, not seen**. The order is labelled "in playlist order" or "in
+  import order".
+
+  **Linking** (no iTunes requests): the add log (exact), reviewed catalog
+  matches (exact), then the §9.5 name matching against the themes of every
+  show on the list (≈ one AnimeThemes call per 50 shows, cached; Jikan only
+  if asked). A manual link or unlink is never overwritten. **Unlinked is not
+  a problem:** songs from shows that aren't on the AniList list stay
+  unlinked and searchable, and the duplicate check still finds them by name.
+
+  **Where it shows:** a playlist chip (synced, out of date after 4 weeks,
+  linking, or none yet) with a popover; **Your playlist** (all songs in
+  order, by show with each show's missing OP/EDs as ghost rows, unlinked,
+  added but not seen; search; change a link); coverage per show ("2/3 in
+  playlist") for the anime picker; and the import in setup and Settings.
+  Sync before exporting whenever the playlist changed outside the app.
 - **x-callback length.** The result goes into a URL. Keep tail reads small
   (n ≤ ~100) and use the clipboard for anything larger.
 - **Playlist names aren't unique.** The Shortcut picks the first match. Tell

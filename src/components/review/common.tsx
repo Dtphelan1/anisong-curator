@@ -74,4 +74,5 @@ export function HavePill({ hit }: { hit: DupHit }) {
 }
 
 /** Where the hit is: "#212" in the playlist, or the add log. */
-export const hitWhere = (hit: DupHit) => (hit.source === 'added' ? 'added by the app' : `#${hit.row.position}`);
+export const hitWhere = (hit: DupHit) =>
+  `${hit.source === 'added' ? 'added by the app' : `#${hit.row.position}`}${hit.via === 'theme' ? ' · linked to this song' : ''}`;

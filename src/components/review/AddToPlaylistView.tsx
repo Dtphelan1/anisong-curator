@@ -6,6 +6,8 @@ import {
   type AddedRecord, type DupIndex, type ExportItem, type StoreName,
 } from '../../lib/dedupe';
 import { songUrl } from '../../lib/itunes';
+import { playlistLibrary } from '../../lib/playlistStore';
+import { usePlaylistLibrary } from '../../lib/usePlaylistLibrary';
 import type { MatchResult } from '../../lib/matching';
 import { groupByShow, summarize, type RecordedBatch } from '../../lib/session';
 import type { ReviewItem } from '../../lib/useMatching';
@@ -49,6 +51,7 @@ interface Props {
 /** Phase 3: the songs to add, grouped by show in watch order, and the three steps to get them into the playlist. */
 export function AddToPlaylistView(p: Props) {
   const { items, byKey, decisions, matches, country, playlistName, playlist, snapshot, added, storeNames } = p;
+  const { status: library } = usePlaylistLibrary();
   const [copied, setCopied] = useState(false);
   const [notYet, setNotYet] = useState(false);
   const [format, setFormatState] = useState<ExportFormat>(() => {
@@ -81,6 +84,7 @@ export function AddToPlaylistView(p: Props) {
     const done = p.done;
     const undo = async () => {
       await p.onUndo(done.id);
+      await playlistLibrary.removeAdds(done.id);
       if (done.anyway?.length) await p.onAddAnyway(done.anyway, true);
       p.onDone(undefined);
     };
@@ -101,6 +105,11 @@ export function AddToPlaylistView(p: Props) {
     const n = plan.add.length;
     const anyway = plan.add.filter((i) => overrides.has(i.key)).map((i) => i.key);
     const id = await p.onRecord(plan.add);
+    // The playlist library appends them now, in this (watch) order; the next sync confirms them.
+    await playlistLibrary.appendAdds(plan.add.map((i) => {
+      const it = byKey.get(i.key);
+      return { key: i.key, trackId: i.trackId, title: i.title, artist: i.artist, durationMs: i.durationMs, anilistId: it?.show.anilistId ?? null, slug: it?.theme.slug ?? null };
+    }), id);
     // Recorded songs are in the add log now; clear their override so they can't go out again.
     await p.onAddAnyway(anyway, false);
     p.onDone({ id, n, at: Date.now(), playlistName, ...(anyway.length ? { anyway } : {}) });
@@ -174,6 +183,7 @@ export function AddToPlaylistView(p: Props) {
             <b>{fresh ? 'Playlist checked' : snapshot ? 'Playlist check is old' : 'Playlist not checked'}</b>
             <span className="muted small">
               {snapshot ? `Synced ${ago(snapshot.importedAt)} · ${snapshot.rows.length} songs` : 'Only songs the app added are checked. Sync to catch the rest.'}
+              {snapshot && library && library.rowCount > 0 && ` · ${library.linking ? 'linking to shows…' : `${library.linked} linked to shows`}`}
             </span>
             <PlaylistSync snapshot={snapshot} playlistName={playlistName} onSnapshot={p.onSnapshot} open={p.syncOpen} onOpen={p.onSyncOpen} />
           </div>
