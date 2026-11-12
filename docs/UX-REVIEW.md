@@ -113,16 +113,20 @@ layout and the "Done · Export" exit.
 - [ ] **Step bar:** AniList · Anime · Songs · Review · Export, with counts;
   finished steps collapse to one-line summaries. This also lets the pinned
   review card start at the top of the screen.
-- [ ] **Skip or slim the songs step:** go straight to review (matching already
-  runs in the background), or show a compact per-show song count.
+- [x] **Skip or slim the songs step:** the songs step is now a progress bar in
+  the anime page's footer, with per-show song counts in the list; Review opens
+  by itself when it's done.
 - [ ] **One gear menu for settings:** store, TV size, autoplay, playlist name,
   insert songs.
 - [ ] **One playlist status chip** ("🔥 AniSong MegaMix · 329 songs · synced
   2 h ago") opening a single Sync/Import dialog, replacing the two separate
   entry points.
 - [ ] **Key legend in a `?` overlay** instead of inline text.
-- [ ] **Picker:** a type-to-filter box, AniList cover thumbnails, song counts
-  per show once known, and season grouping when sorted by date.
+- [x] **Picker:** a type-to-filter box (`/`), AniList cover thumbnails, song
+  counts per show once known, and season grouping when sorted by date. Done
+  in the "Which anime would you like to add?" page, with quick starts (after
+  the last show added, finished since a date, the last N finished, pick by
+  hand) and a divider at the last show added.
 
 ## Batch D: phone and accessibility
 - [ ] **Phone:** a fixed bottom bar with Keep / Skip / Later; optionally swipe

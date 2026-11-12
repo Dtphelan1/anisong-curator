@@ -4,6 +4,7 @@ import { orderShows, DEFAULT_ORDER } from './ordering';
 import {
   DEFAULT_SELECTION, invertSelection, isPlainNewer, rangeIds, selectAll, selectedIds, selectedShows,
   selectNewer, selectNone, selectOnly, setShows, toggleShow, type SelectionContext,
+  handEdits, resetEdits, withBase,
 } from './selection';
 
 const show = (id: number, day: number): Show => ({
@@ -69,5 +70,48 @@ describe('selection', () => {
     const c = ctx('desc');
     const sel = { base: 'none' as const, include: [1, 4, 99], exclude: [] };
     expect(selectedShows(sel, c).map((o) => o.show.anilistId)).toEqual([4, 1]);
+  });
+});
+
+describe('quick starts', () => {
+  // 1–5 completed on Jan 1–5; 6 watching; 7 dropped (newest update); 8 completed, no date.
+  const mixed: Show[] = [
+    ...shows,
+    { ...show(6, 0), status: 'CURRENT', completedAt: { year: null, month: null, day: null }, updatedAt: 1_800_000_000 },
+    { ...show(7, 0), status: 'DROPPED', completedAt: { year: null, month: null, day: null }, updatedAt: 1_900_000_000 },
+    { ...show(8, 0), completedAt: { year: null, month: null, day: null } },
+    { ...show(9, 0), completedAt: { year: 2024, month: null, day: null } },
+  ];
+  const c = (boundId: number | null = null): SelectionContext => ({ ordered: orderShows(mixed, { ...DEFAULT_ORDER, direction: 'desc' }), boundId, direction: 'desc' });
+
+  it('newer: includes shows in progress, never pre-selects dropped or paused', () => {
+    expect(ids(selectedIds(selectNewer(), c(3)))).toEqual([4, 5, 6]);
+    expect(ids(selectedIds(selectNewer(), c()))).not.toContain(7);
+  });
+
+  it('since: completion date on or after the date, plus shows in progress', () => {
+    const sel = withBase(DEFAULT_SELECTION, 'since', { since: '2024-01-03' });
+    expect(ids(selectedIds(sel, c()))).toEqual([3, 4, 5, 6]);
+    // A partial date (2024) counts from the start of its year, so it's before Jan 3.
+    expect(ids(selectedIds(withBase(sel, 'since', { since: '2024-01-01' }), c()))).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(ids(selectedIds(withBase(sel, 'since', { since: '' }), c()))).toEqual([6]);
+  });
+
+  it('latest: the N most recently completed, plus shows in progress', () => {
+    const sel = withBase(DEFAULT_SELECTION, 'latest', { count: 2 });
+    expect(ids(selectedIds(sel, c()))).toEqual([4, 5, 6]);
+  });
+
+  it('switching quick starts keeps hand edits and the remembered date; pick by hand keeps only additions', () => {
+    let sel = toggleShow(withBase(DEFAULT_SELECTION, 'since', { since: '2024-01-03' }), 1, c()); // add 1
+    sel = toggleShow(sel, 5, c()); // remove 5
+    expect(handEdits(sel)).toBe(2);
+    const latest = withBase(sel, 'latest', { count: 3 });
+    expect(latest.since).toBe('2024-01-03');
+    expect(ids(selectedIds(latest, c()))).toEqual([1, 3, 4, 6]);
+    expect(ids(selectedIds(withBase(sel, 'none'), c()))).toEqual([1]);
+    expect(handEdits(resetEdits(sel))).toBe(0);
+    // setShows keeps the extra fields.
+    expect(setShows(latest, [2], true, c()).count).toBe(3);
   });
 });
