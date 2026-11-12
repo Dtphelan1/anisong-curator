@@ -92,7 +92,9 @@ async function get(path: 'search' | 'lookup', params: Record<string, string>, de
   const run = async (): Promise<RawResult[]> => {
     let body: { results?: RawResult[] };
     try {
-      const res = await (deps.fetchImpl ?? fetch)(url);
+      // A hung connection would stall the whole matcher queue; give up after 20 s.
+      const signal = typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(20_000) : undefined;
+      const res = await (deps.fetchImpl ?? fetch)(url, signal ? { signal } : undefined);
       if (!res.ok) throw new HttpError(res.status, `iTunes HTTP ${res.status}`);
       body = (await res.json()) as { results?: RawResult[] };
     } catch (err) {

@@ -13,6 +13,11 @@ import { parsePlaylist, type ParseResult } from '../lib/playlistImport';
 import { useAdded } from '../lib/useAdded';
 import { useStoreNames } from '../lib/useStoreNames';
 import { useDecisions, useMatching, type ReviewItem } from '../lib/useMatching';
+import { claim, stopSample, toggleSample, usePlayingSample } from '../lib/sampler';
+import {
+  computeOrder, counts as filterCounts, DEFAULT_VIEW, FILTERS, isStale, nextUndecidedKey, SORT_LABEL, stepKey, withCurrent,
+  type MatchState, type QueueEntry, type SortField as QueueSort, type ViewOptions,
+} from '../lib/queueView';
 
 interface Props {
   items: ReviewItem[];
@@ -37,8 +42,13 @@ const mmss = (ms: number | null) => (ms ? `${Math.floor(ms / 60000)}:${String(Ma
 const isTyping = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
 
 export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, playlistName, onSettings, onBack }: Props) {
-  const [index, setIndex] = useState(0);
-  const [onlyUndecided, setOnlyUndecided] = useState(false);
+  // The current song is tracked by key, not position: re-sorting, filtering or a
+  // status change never swaps the song you're looking at.
+  const [currentKey, setCurrentKey] = useState<string | null>(items[0]?.key ?? null);
+  const index = Math.max(0, items.findIndex((i) => i.key === currentKey));
+  const setIndex = useCallback((i: number) => setCurrentKey(items[i]?.key ?? null), [items]);
+  const [tab, setTab] = useState<'queue' | 'kept' | 'later'>('queue');
+  const cardRef = useRef<HTMLElement>(null);
   const [showCandidates, setShowCandidates] = useState(false);
   const { matches, status, errors, choose, rematch } = useMatching(items, country, prefs, index);
   const { decisions, decide, setAddAnyway } = useDecisions(useMemo(() => items.map((i) => i.key), [items]));
@@ -75,20 +85,36 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
   // flagged (banner, colour, queue marker), never hidden or skipped for you.
   const have = item ? inPlaylist.get(item.key) : undefined;
 
-  const visibleIdx = useMemo(
-    () => items.map((_, i) => i).filter((i) => i === index || !onlyUndecided || !decisions.has(items[i]!.key)),
-    [items, onlyUndecided, decisions, index],
-  );
+  // ---- Queue view: sort/filter/group with a frozen order (see queueView.ts) ----
+  const entries = useMemo<QueueEntry[]>(() => items.map((it, i) => ({
+    key: it.key, index: i, anime: displayTitle(it.show), title: it.theme.songTitle ?? '',
+    match: matchState(matches.get(it.key), status.get(it.key)),
+    decision: decisions.get(it.key)?.decision ?? 'undecided',
+    have: inPlaylist.has(it.key),
+  })), [items, matches, status, decisions, inPlaylist]);
+  const [view, setViewState] = useState<ViewOptions>(loadView);
+  const [frozen, setFrozen] = useState<string[]>(() => computeOrder(entries, view));
+  // The order changes only when you change the view or ask for a refresh.
+  const setView = useCallback((v: ViewOptions) => { setViewState(v); setFrozen(computeOrder(entries, v)); saveView(v); }, [entries]);
+  const refreshOrder = useCallback(() => setFrozen(computeOrder(entries, view)), [entries, view]);
+  const order = useMemo(() => withCurrent(frozen, currentKey, entries), [frozen, currentKey, entries]);
+  const stale = useMemo(() => isStale(frozen, entries, view), [frozen, entries, view]);
+
   const step = useCallback((dir: 1 | -1) => {
-    const pos = visibleIdx.indexOf(index);
-    const next = visibleIdx[Math.min(visibleIdx.length - 1, Math.max(0, pos + dir))];
-    if (next !== undefined) setIndex(next);
-  }, [visibleIdx, index]);
+    const k = stepKey(order, currentKey, dir);
+    if (k) setCurrentKey(k);
+  }, [order, currentKey]);
   const nextUndecided = useCallback(() => {
-    const order = [...items.keys()].slice(index + 1).concat([...items.keys()].slice(0, index));
-    const next = order.find((i) => !decisions.has(items[i]!.key) && i !== index);
-    setIndex(next ?? Math.min(items.length - 1, index + 1));
-  }, [items, index, decisions]);
+    const undecided = (k: string) => !decisions.has(k);
+    // Next undecided in the visible order; if the view has none left, anywhere.
+    const k = nextUndecidedKey(order, currentKey, undecided) ?? items.find((i) => i.key !== currentKey && undecided(i.key))?.key ?? null;
+    if (k) setCurrentKey(k); else step(1);
+  }, [order, currentKey, decisions, items, step]);
+  const pick = useCallback((key: string) => {
+    setCurrentKey(key);
+    // Single-column layout: bring the card back into view.
+    if (window.matchMedia('(max-width: 899px)').matches) cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   const doDecide = useCallback(async (d: DecisionValue, addAnyway = false) => {
     if (!item) return;
@@ -113,7 +139,9 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
   }, [decisions, items]);
 
   // Reset per-item UI; autoplay the preview.
-  useEffect(() => { setShowCandidates(false); }, [index]);
+  useEffect(() => { setShowCandidates(false); stopSample(); }, [currentKey]);
+  // The card's player and the candidate sampler never play at once.
+  useEffect(() => (audio.current ? claim(audio.current) : undefined), [currentKey, !!chosen]);
   useEffect(() => {
     const el = audio.current;
     if (!el || !chosen?.track.previewUrl) return;
@@ -153,15 +181,14 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
   if (!item) return <section className="card"><p>No songs to review.</p><button className="secondary" onClick={onBack}>← Back</button></section>;
 
   return (
-    <>
-      <section className="card review">
+    <div className="review-layout">
+      <section className="card review review-main" ref={cardRef} aria-label="Song under review">
         <div className="row">
           <button className="secondary" onClick={onBack}>← Songs</button>
           <strong>{index + 1}/{items.length}</strong>
           <span className="muted">kept {counts.keep} · skipped {counts.skip} · later {counts.later}</span>
           {counts.pending > 0 && <span className="muted">· matching {counts.pending} more (~{Math.ceil(counts.pending * 1.7 * 3 / 60)} min)</span>}
           <span className="spacer" />
-          <label><input type="checkbox" checked={onlyUndecided} onChange={(e) => setOnlyUndecided(e.target.checked)} /> Undecided only</label>
         </div>
 
         <div className="song-head">
@@ -220,11 +247,42 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
         </div>
       </section>
 
-      <Queue items={items} index={index} onPick={setIndex} matches={matches} status={status} decisions={decisions} inPlaylist={inPlaylist} />
-      <KeptSummary items={items} matches={matches} decisions={decisions} country={country} playlistName={playlistName} playlist={playlist} snapshot={snapshot} onSnapshot={onSnapshot} added={added} storeNames={storeNames} onRecord={record} onUndo={undoBatch} onAddAnyway={setAddAnyway} />
-      <LaterList items={items} decisions={decisions} inPlaylist={inPlaylist} onPick={setIndex} />
-    </>
+      <aside className="review-side" aria-label="Queue, kept and later songs">
+        <div className="tabs" role="tablist">
+          <button role="tab" aria-selected={tab === 'queue'} className={tab === 'queue' ? 'on' : ''} onClick={() => setTab('queue')}>Queue <span className="muted">{items.length}</span></button>
+          <button role="tab" aria-selected={tab === 'kept'} className={tab === 'kept' ? 'on' : ''} onClick={() => setTab('kept')}>Kept <span className="muted">{counts.keep}</span></button>
+          <button role="tab" aria-selected={tab === 'later'} className={tab === 'later' ? 'on' : ''} onClick={() => setTab('later')}>Later <span className="muted">{counts.later}</span></button>
+        </div>
+        {tab === 'queue' && (
+          <Queue items={items} entries={entries} order={order} currentKey={currentKey} onPick={pick} matches={matches} decisions={decisions} inPlaylist={inPlaylist}
+            view={view} onView={setView} stale={stale} onRefresh={refreshOrder} />
+        )}
+        {tab === 'kept' && (<div className="side-scroll">
+          <KeptSummary items={items} matches={matches} decisions={decisions} country={country} playlistName={playlistName} playlist={playlist} snapshot={snapshot} onSnapshot={onSnapshot} added={added} storeNames={storeNames} onRecord={record} onUndo={undoBatch} onAddAnyway={setAddAnyway} />
+        </div>)}
+        {tab === 'later' && (<div className="side-scroll">
+          <LaterList items={items} decisions={decisions} inPlaylist={inPlaylist} onPick={(i) => pick(items[i]!.key)} />
+          {!counts.later && <p className="muted card">No songs marked Later.</p>}
+        </div>)}
+      </aside>
+    </div>
   );
+}
+
+const VIEW_KEY = 'anisong-curator.queueView';
+function loadView(): ViewOptions {
+  try { return { ...DEFAULT_VIEW, ...(JSON.parse(localStorage.getItem(VIEW_KEY) ?? '{}') as Partial<ViewOptions>) }; } catch { return DEFAULT_VIEW; }
+}
+function saveView(v: ViewOptions) {
+  try { localStorage.setItem(VIEW_KEY, JSON.stringify(v)); } catch { /* private mode */ }
+}
+
+function matchState(m: MatchResult | undefined, st: string | undefined): MatchState {
+  if (st !== 'done' && st !== 'error') return 'pending';
+  if (!m || st === 'error') return 'no-match';
+  if (m.userPicked) return 'your-pick';
+  const c = confidenceOf(m.score);
+  return c === 'high' ? 'confident' : c === 'check' ? 'check' : c === 'low' ? 'unlikely' : 'no-match';
 }
 
 function Flags({ c, theme }: { c: Candidate; theme: ReviewItem['theme'] }) {
@@ -283,7 +341,7 @@ function MatchView({ item, match, chosen, status, error, audioRef, inPlaylist }:
   return (
     <div className={`match${inPlaylist ? ` have-frame have-${inPlaylist.tier}` : ''}`}>
       {t.artworkUrl100
-        ? <img src={t.artworkUrl100.replace('100x100bb', '200x200bb')} alt="" width={88} height={88} onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
+        ? <img src={t.artworkUrl100.replace('100x100bb', '200x200bb')} alt="" width={88} height={88} onError={(e) => { e.currentTarget.style.display = 'none'; }} />
         : <div className="art" />}
       <div className="match-body">
         <div>
@@ -304,20 +362,69 @@ function MatchView({ item, match, chosen, status, error, audioRef, inPlaylist }:
   );
 }
 
-function CandidateList({ candidates, onUse }: { candidates: Candidate[]; onUse: (t: ItunesTrack) => void }) {
+/** Covers, karaoke and instrumentals are rarely what you want: tucked away by default. */
+const NOISE: Flag[] = ['cover', 'karaoke', 'instrumental'];
+/** Below this score a result is collapsed behind "show more". */
+const LOW_SCORE = 0.2;
+
+/** ▶/■ for a preview, through the shared sampler (one plays at a time). */
+function SampleButton({ url, label }: { url: string | null; label: string }) {
+  const playing = usePlayingSample();
+  if (!url) return <span className="muted small">no preview</span>;
+  const on = playing === url;
   return (
-    <table className="cands">
-      <tbody>
-        {candidates.map((c) => (
-          <tr key={c.track.trackId}>
-            <td className="nowrap muted">{Math.round(c.score * 100)}</td>
-            <td><strong>{c.track.trackName}</strong><br /><span className="muted">{c.track.artistName} · {c.track.collectionName} · {mmss(c.track.trackTimeMillis)}</span> {c.flags.map((f) => <span key={f} className="badge warn">{FLAG_LABEL[f]}</span>)}</td>
-            <td>{c.track.previewUrl && <audio controls preload="none" src={c.track.previewUrl} />}</td>
-            <td><button className="secondary" onClick={() => onUse(c.track)}>Use</button></td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <button className={`secondary sample ${on ? 'on' : ''}`} onClick={() => toggleSample(url)} aria-pressed={on} aria-label={`${on ? 'Stop' : 'Play'} preview of ${label}`} title={on ? 'Stop preview' : 'Play preview'}>
+      {on ? '■' : '▶'}
+    </button>
+  );
+}
+
+function ScoreBar({ score }: { score: number }) {
+  const pct = Math.round(score * 100);
+  return (
+    <span className="score" title={`Match score ${pct}%`} aria-label={`Match score ${pct}%`}>
+      <span className="score-bar"><span style={{ width: `${pct}%` }} className={pct >= 80 ? 'hi' : pct >= 55 ? 'mid' : 'lo'} /></span>
+      <span className="score-num">{pct}%</span>
+    </span>
+  );
+}
+
+/**
+ * Candidates / search results in a height-capped, scrollable list. Strong
+ * results show first; low scores and covers/karaoke/instrumentals collapse
+ * behind "show N more" so the list stays scannable.
+ */
+function CandidateList({ candidates, onUse }: { candidates: Candidate[]; onUse: (t: ItunesTrack) => void }) {
+  const [showAll, setShowAll] = useState(false);
+  const isNoise = (c: Candidate) => c.score < LOW_SCORE || c.flags.some((f) => NOISE.includes(f));
+  const main = candidates.filter((c) => !isNoise(c));
+  const rest = candidates.filter(isNoise);
+  const shown = showAll || !main.length ? candidates : main;
+  return (
+    <div className="cands-wrap">
+      {!main.length && rest.length > 0 && <p className="muted small cands-note">No strong matches: showing low-scoring, cover and karaoke results too.</p>}
+      <table className="cands">
+        <tbody>
+          {shown.map((c) => (
+            <tr key={c.track.trackId} className={isNoise(c) ? 'noise' : ''}>
+              <td className="nowrap"><ScoreBar score={c.score} /></td>
+              <td>
+                <strong>{c.track.trackName}</strong><br />
+                <span className="muted">{c.track.artistName} · {c.track.collectionName} · {mmss(c.track.trackTimeMillis)}</span>{' '}
+                {c.flags.map((f) => <span key={f} className={`badge ${NOISE.includes(f) ? 'bad' : 'warn'}`}>{FLAG_LABEL[f]}</span>)}
+              </td>
+              <td className="nowrap"><SampleButton url={c.track.previewUrl} label={c.track.trackName} /></td>
+              <td><button className="secondary" onClick={() => onUse(c.track)}>Use</button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {main.length > 0 && rest.length > 0 && (
+        <button className="link small" onClick={() => setShowAll((v) => !v)}>
+          {showAll ? 'Hide' : 'Show'} {rest.length} low-scoring, cover or karaoke result{rest.length === 1 ? '' : 's'}
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -376,36 +483,83 @@ function marker(d: Decision | undefined, have: DupHit | undefined): { glyph: str
   return { glyph: '⊘', title: "Kept, held back: it's already in your playlist", cls: 'have-text' };
 }
 
-function Queue({ items, index, onPick, matches, status, decisions, inPlaylist }: {
-  items: ReviewItem[]; index: number; onPick: (i: number) => void;
-  matches: Map<string, MatchResult>; status: Map<string, string>; decisions: Map<string, Decision>; inPlaylist: Map<string, DupHit>;
+function Queue({ items, entries, order, currentKey, onPick, matches, decisions, inPlaylist, view, onView, stale, onRefresh }: {
+  items: ReviewItem[]; entries: QueueEntry[]; order: string[]; currentKey: string | null; onPick: (key: string) => void;
+  matches: Map<string, MatchResult>; decisions: Map<string, Decision>; inPlaylist: Map<string, DupHit>;
+  view: ViewOptions; onView: (v: ViewOptions) => void; stale: boolean; onRefresh: () => void;
 }) {
+  const byKey = useMemo(() => new Map(items.map((it) => [it.key, it])), [items]);
+  const entryByKey = useMemo(() => new Map(entries.map((e) => [e.key, e])), [entries]);
+  const n = useMemo(() => filterCounts(entries), [entries]);
+  const rows = useRef(new Map<string, HTMLTableRowElement>());
+  // Keep the current song visible in the list as you move through it.
+  useEffect(() => { if (currentKey) rows.current.get(currentKey)?.scrollIntoView({ block: 'nearest' }); }, [currentKey]);
+  const progress = useMemo(() => {
+    const m = new Map<string, { done: number; total: number }>();
+    for (const e of entries) { const p = m.get(e.anime) ?? { done: 0, total: 0 }; p.total++; if (e.decision !== 'undecided') p.done++; m.set(e.anime, p); }
+    return m;
+  }, [entries]);
+  const STATUS_TEXT: Record<MatchState, string> = { confident: 'confident', 'your-pick': 'your pick', check: 'check me', unlikely: 'unlikely', 'no-match': 'no match', pending: '' };
+  const STATUS_CLASS: Record<MatchState, string> = { confident: 'conf-high', 'your-pick': 'conf-high', check: 'conf-check', unlikely: 'conf-low', 'no-match': 'conf-none', pending: '' };
+
   return (
-    <section className="card">
-      <h2>Queue</h2>
+    <section className="card queue-card">
+      <div className="row queue-tools">
+        <label>Sort
+          <select value={view.sort} onChange={(e) => onView({ ...view, sort: e.target.value as QueueSort, desc: e.target.value === 'status' })}>
+            {(Object.keys(SORT_LABEL) as QueueSort[]).map((k) => <option key={k} value={k}>{SORT_LABEL[k]}</option>)}
+          </select>
+        </label>
+        <button className="secondary small-btn" onClick={() => onView({ ...view, desc: !view.desc })} title="Reverse the order">
+          {view.sort === 'status' ? (view.desc ? 'Confident first' : 'No match first') : view.desc ? 'Z→A ↑' : 'A→Z ↓'}
+        </button>
+        <label><input type="checkbox" checked={view.groupByAnime} onChange={(e) => onView({ ...view, groupByAnime: e.target.checked })} /> Group by anime</label>
+        {stale && <button className="pill" onClick={onRefresh} title="Statuses changed since this order was set; the list stays put until you refresh">Order out of date · refresh</button>}
+      </div>
+      <div className="chips" role="radiogroup" aria-label="Filter">
+        {FILTERS.map((f) => (
+          <button key={f.id} role="radio" aria-checked={view.filter === f.id} className={`chip ${view.filter === f.id ? 'on' : ''} ${f.id === 'have' ? 'chip-have' : ''}`}
+            onClick={() => onView({ ...view, filter: f.id })} disabled={!n[f.id] && view.filter !== f.id && f.id !== 'all'}>
+            {f.label} <span className="chip-n">{n[f.id]}</span>
+          </button>
+        ))}
+      </div>
       <p className="muted small legend">
-        <span className="ok">✓</span> kept, will be exported · <span className="have-text">⊘</span> kept, held back (already have) ·{' '}
-        <span className="have-text">✓+</span> kept, add anyway · … later · ✕ skipped
+        <span className="ok">✓</span> exported · <span className="have-text">⊘</span> held back · <span className="have-text">✓+</span> add anyway · … later · ✕ skipped
       </p>
-      <table className="queue">
-        <tbody>
-          {items.map((it, i) => {
-            const m = matches.get(it.key);
-            const hit = inPlaylist.get(it.key);
-            const mk = marker(decisions.get(it.key), hit);
-            const st = status.get(it.key);
-            const conf = m?.userPicked ? 'high' : confidenceOf(m?.score ?? null);
-            return (
-              <tr key={it.key} className={`${i === index ? 'current' : ''} ${hit ? 'have-row' : ''}`} onClick={() => onPick(i)}>
-                <td className={`nowrap marker ${mk.cls}`} title={mk.title}>{mk.glyph}</td>
-                <td className="nowrap muted">{it.theme.slug}</td>
-                <td>{it.theme.songTitle} <span className="muted">· {displayTitle(it.show)}</span><InPlaylistBadge hit={inPlaylist.get(it.key)} /></td>
-                <td className="nowrap">{st === 'done' || st === 'error' ? <span className={`badge conf-${conf}`}>{m?.userPicked ? 'your pick' : CONF_LABEL[conf]}</span> : <span className="muted">{st}</span>}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <div className="queue-scroll">
+        <table className="queue">
+          <tbody>
+            {order.map((key, i) => {
+              const it = byKey.get(key);
+              const e = entryByKey.get(key);
+              if (!it || !e) return null;
+              const hit = inPlaylist.get(key);
+              const mk = marker(decisions.get(key), hit);
+              const m = matches.get(key);
+              const header = view.groupByAnime && entryByKey.get(order[i - 1] ?? '')?.anime !== e.anime;
+              const p = progress.get(e.anime);
+              return [
+                header ? (
+                  <tr key={`h:${e.anime}`} className="group-head"><td colSpan={4}>{e.anime} <span className="muted">· {p?.done}/{p?.total} decided</span></td></tr>
+                ) : null,
+                <tr key={key} ref={(el) => { if (el) rows.current.set(key, el); else rows.current.delete(key); }}
+                  className={`${key === currentKey ? 'current' : ''} ${hit ? 'have-row' : ''}`} onClick={() => onPick(key)} aria-current={key === currentKey ? 'true' : undefined}>
+                  <td className={`nowrap marker ${mk.cls}`} title={mk.title}>{mk.glyph}</td>
+                  <td className="nowrap muted">{it.theme.slug}</td>
+                  <td>{it.theme.songTitle}{!view.groupByAnime && <span className="muted"> · {e.anime}</span>}<InPlaylistBadge hit={hit} /></td>
+                  <td className="nowrap">
+                    {e.match === 'pending'
+                      ? <span className="muted small">matching…</span>
+                      : <span className={`badge ${STATUS_CLASS[e.match]}`} title={m?.method === 'animethemes-link' ? 'Linked on AnimeThemes' : undefined}>{STATUS_TEXT[e.match]}</span>}
+                  </td>
+                </tr>,
+              ];
+            })}
+          </tbody>
+        </table>
+        {!order.length && <p className="muted">Nothing matches this filter.</p>}
+      </div>
     </section>
   );
 }

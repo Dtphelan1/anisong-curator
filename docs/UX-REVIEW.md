@@ -1,0 +1,79 @@
+# UX review: suggestions and status
+
+A design pass over the app as of 2026-11-12, made from screenshots of every
+screen with live data at 1440 × 900 and 390 px wide. Items are grouped into
+batches by priority. Tick them off as they ship; add new findings at the end.
+
+## What prompted it
+- **The review page was about 3,300 px tall on desktop.** The card, queue and
+  Kept list were stacked in a 1,000 px column; after one manual search the
+  queue sat about 1,600 px below the card, and clicking a queue row changed a
+  card that was out of view.
+- **Manual search listed every result:** 28 for one query, mostly 0-scored
+  covers, each with its own audio player.
+- **Settings and a long key legend sat inside the review card.**
+- **The AniList section stayed on top of every step;** the songs step was mostly
+  a wait screen.
+- **Phone:** 23 px of horizontal scroll, an empty album-art box, and the action
+  buttons below the fold.
+
+## Batch A: keep the song under review in view ✅
+- [x] **Two-pane review on desktop:** the card pinned on the left, a tabbed
+  Queue / Kept / Later panel on the right, each scrolling on its own. Narrow
+  screens stack them. The app is now 1,280 px wide.
+- [x] **Height-capped candidate and search lists** with score bars; weak,
+  cover and karaoke results collapse behind "show N more".
+- [x] **One shared preview player** (▶/■ per row) instead of an audio player
+  per row; it pauses the card's player and vice versa.
+- [x] **Queue sort:** original, match status (confident → your pick → check me
+  → unlikely → no match, or reversed), anime, song title, decision.
+- [x] **Queue filter chips** with counts, and **group by anime** with
+  per-show progress.
+- [x] **Stable position:** the current song is tracked by key; the order
+  stays frozen when a status changes (an "Order out of date · refresh" pill
+  offers the re-sort); next/previous and "next undecided" follow the visible
+  order.
+- [x] **Phone:** no horizontal scroll; a failed album-art image no longer
+  leaves an empty box.
+
+## Batch B: faster, safer decisions
+- [ ] **Undo toast** after each decision ("Kept *Hologram* (held back) ·
+  Undo"), plus `U` to undo the last few.
+- [ ] **Side-by-side check for "check me" songs:** AnimeThemes' title, artist
+  and episodes next to the Apple Music match, with differences highlighted.
+- [ ] **"Watch the OP/ED" link to AnimeThemes,** to confirm it's the song you
+  remember.
+- [ ] **Progress bar** (decided / matched / total) in place of the text
+  "matching N more", with a retry action when iTunes throttles.
+- [ ] *(Optional, conflicts with "every song is reviewed")* **"Keep all
+  confident"** as an explicit, confirmed batch decision.
+
+## Batch C: tidy the overall flow
+- [ ] **Step bar:** AniList · Anime · Songs · Review · Export, with counts;
+  finished steps collapse to one-line summaries. This also lets the pinned
+  review card start at the top of the screen.
+- [ ] **Skip or slim the songs step:** go straight to review (matching already
+  runs in the background), or show a compact per-show song count.
+- [ ] **One gear menu for settings:** store, TV size, autoplay, playlist name,
+  insert songs.
+- [ ] **One playlist status chip** ("🔥 AniSong MegaMix · 329 songs · synced
+  2 h ago") opening a single Sync/Import dialog, replacing the two separate
+  entry points.
+- [ ] **Key legend in a `?` overlay** instead of inline text.
+- [ ] **Picker:** a type-to-filter box, AniList cover thumbnails, song counts
+  per show once known, and season grouping when sorted by date.
+
+## Batch D: phone and accessibility
+- [ ] **Phone:** a fixed bottom bar with Keep / Skip / Later; optionally swipe
+  gestures.
+- [ ] **Screen readers:** announce status changes ("matched", "kept") in a
+  live region; return focus to the card after a decision.
+- [ ] **Contrast:** check the muted grey text in dark mode.
+
+## Notes
+- **Keep slows the next match a little.** Each Keep triggers a Japan-store name
+  lookup (for duplicate matching) that shares iTunes' ~20/min budget with
+  matching. Reviewing quickly, the next song can wait about 20 s. Fix: run
+  those lookups only when matching is idle, or at export time.
+- **Pinned panes and the top of the page:** the review panes pin once you've
+  scrolled past the AniList section. Batch C's step bar removes that offset.

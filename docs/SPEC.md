@@ -142,6 +142,26 @@ is the most exact duplicate source (§9.4).
    also accepts a pasted `music.apple.com/.../song/...` or `?i=` URL, which is
    parsed to a `trackId` and resolved with Lookup. This is an exact escape hatch
    for anything the matcher misses.
+   - **Layout:** on desktop (≥ 900 px) the card is pinned on the left and a
+     tabbed side panel (Queue / Kept / Later) on the right, each scrolling on
+     its own, so the song under review never leaves the screen. Narrow screens
+     stack them.
+   - **Candidate and search lists** are height-capped and scrollable, with a
+     score bar per row. Weak, cover and karaoke results collapse behind "show
+     N more". Previews play through one shared player (`sampler.ts`), so only
+     one plays at a time, the card's own player included.
+   - **Queue** (`queueView.ts`):
+     - Sort by original order, match status (confident → your pick → check me
+       → unlikely → no match; or reversed), anime, song title or decision.
+     - Filter chips with counts (Undecided, Check me, No match, Already have,
+       Kept, Later, Skipped), and an optional group-by-anime with per-show
+       progress.
+     - The current song is tracked by **key**, not position. The view's order
+       is **frozen**: a status change (e.g. no match → your pick) updates the
+       row in place instead of moving it, and an "Order out of date · refresh"
+       pill offers the re-sort.
+     - ←/→ and "next undecided" follow the visible order. The song you're on
+       stays listed even after it leaves the filter.
 7. **Kept: dedupe and export** (§9.4).
    1. Optionally refresh the playlist snapshot: run `Anisong Export Playlist`
       and paste its text into **Sync playlist** (or import a Mac export).

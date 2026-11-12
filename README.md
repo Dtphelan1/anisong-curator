@@ -2,6 +2,7 @@
 An app for seamlessly adding your favorite anisongs from this season to an existing Apple Music playlist.
 
 - Spec: [`docs/SPEC.md`](docs/SPEC.md)
+- UX review and backlog: [`docs/UX-REVIEW.md`](docs/UX-REVIEW.md)
 - Integration spike page: [`spike/`](spike/README.md)
 - Shortcuts setup guide: [`shortcuts/README.md`](shortcuts/README.md). How to build
   `Anisong Add Kept` and `Anisong Export Playlist`, the two shortcuts the app relies on.

@@ -13,7 +13,7 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, sans-serif; }
-.app { max-width: 1000px; margin: 0 auto; padding: 16px; }
+.app { max-width: 1280px; margin: 0 auto; padding: 16px; }
 h1 { font-size: 20px; margin: 0; } h2 { font-size: 16px; margin: 0 0 8px; }
 header { margin-bottom: 14px; } header p { margin: 2px 0 0; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 14px; }
@@ -133,3 +133,47 @@ ul.later li { margin: 3px 0; }
 ul.later li.have-row { list-style-type: '⊘ '; }
 ul.later li.have-row::marker { color: var(--have); }
 .legend { margin: -4px 0 6px; }
+
+/* ---- Candidates / search results: capped, scannable ---- */
+.cands-wrap { max-height: 40vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; margin-top: 6px; overscroll-behavior: contain; }
+.cands-wrap table.cands { margin: 0; }
+.cands-wrap table.cands td { vertical-align: middle; }
+.cands-wrap tr.noise td { opacity: 0.6; }
+.cands-wrap > button.link { display: block; margin: 6px 8px; }
+.score { display: inline-flex; align-items: center; gap: 6px; }
+.score-bar { width: 44px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; display: inline-block; }
+.score-bar > span { display: block; height: 100%; }
+.score-bar > .hi { background: var(--ok); } .score-bar > .mid { background: var(--warn); } .score-bar > .lo { background: var(--bad); }
+.score-num { font-size: 11px; color: var(--muted); width: 32px; text-align: right; font-variant-numeric: tabular-nums; }
+button.sample { width: 34px; padding: 4px 0; text-align: center; }
+button.sample.on { background: var(--accent); color: var(--accent-fg); }
+
+/* ---- Review layout: pinned card + side panel (desktop), stacked (narrow) ---- */
+.review-layout { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr); }
+.review-side { display: flex; flex-direction: column; min-width: 0; }
+.review-side .card { margin-bottom: 0; }
+.tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.tabs button { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--muted); padding: 6px 12px; }
+.tabs button.on { color: var(--fg); border-bottom-color: var(--accent); font-weight: 600; }
+.queue-card { display: flex; flex-direction: column; min-height: 0; }
+.queue-tools { margin-top: 0; }
+.queue-scroll { overflow-y: auto; max-height: 60vh; overscroll-behavior: contain; }
+.side-scroll { overflow-y: auto; min-height: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 6px; }
+.chip { font-size: 12px; padding: 2px 8px; border-radius: 12px; background: transparent; color: var(--fg); border: 1px solid var(--line); }
+.chip.on { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.chip.chip-have:not(.on) { color: var(--have); border-color: var(--have); }
+.chip:disabled { opacity: 0.4; }
+.chip-n { opacity: 0.7; font-variant-numeric: tabular-nums; margin-left: 2px; }
+.pill { font-size: 12px; padding: 2px 10px; border-radius: 12px; background: var(--bound); color: var(--fg); border: 1px solid var(--warn); }
+button.small-btn { padding: 3px 8px; font-size: 13px; }
+table.queue tr.group-head td { background: var(--card); font-weight: 600; padding-top: 10px; border-bottom: 1px solid var(--line); cursor: default; }
+@media (min-width: 900px) {
+  .review-layout { grid-template-columns: minmax(0, 1.25fr) minmax(340px, 1fr); align-items: start; }
+  .review-main, .review-side { position: sticky; top: 8px; max-height: calc(100vh - 16px); }
+  .review-main { overflow-y: auto; overscroll-behavior: contain; margin-bottom: 0; }
+  .review-side .queue-card { flex: 1; }
+  .queue-scroll { max-height: none; flex: 1; }
+  .review-side > .queue-card, .review-side > .side-scroll { flex: 1; min-height: 0; }
+}
+.cands-note { margin: 6px 8px 0; }
