@@ -128,26 +128,31 @@ input block and doesn't need **Show in Share Sheet**.
 |---|---|---|
 | 1 | **Find Music** | Filter: **Playlist** *is* **🔥 AniSong MegaMix** (picker). No sort, no limit |
 | 2 | **Set Variable** | Name: `Songs`. Input: *Music* |
-| 3 | **Get Details of Music** | Detail: **Title**. Input: variable *Songs* |
-| 4 | **Combine Text** | Input: *Title* (from step 3). Separator: **New Lines** |
-| 5 | **Set Variable** | Name: `Titles`. Input: *Combined Text* |
-| 6 | **Get Details of Music** | Detail: **Artist**. Input: variable *Songs* |
-| 7 | **Combine Text** | Input: *Artist* (from step 6). Separator: **New Lines** |
-| 8 | **Set Variable** | Name: `Artists`. Input: *Combined Text* |
-| 9 | **Get Details of Music** | Detail: **Duration**. Input: variable *Songs* |
-| 10 | **Combine Text** | Input: *Duration* (from step 9). Separator: **New Lines** |
-| 11 | **Set Variable** | Name: `Durations`. Input: *Combined Text* |
-| 12 | **Text** | The block below, with the three variables inserted where shown |
-| 13 | **Copy to Clipboard** | Input: *Text* (from step 12) |
-| 14 | **Count** | Count **Items** in variable *Songs* |
-| 15 | **Show Notification** | `Copied ` + *Count* + ` songs. Paste into the app's Sync playlist box.` |
+| 3 | **Count** | Count **Items** in variable *Songs* |
+| 4 | **Set Variable** | Name: `Count`. Input: *Count* (from step 3) |
+| 5 | **Get Details of Music** | Detail: **Title**. Input: variable *Songs* |
+| 6 | **Combine Text** | Input: *Title* (from step 5). Separator: **New Lines** |
+| 7 | **Set Variable** | Name: `Titles`. Input: *Combined Text* |
+| 8 | **Get Details of Music** | Detail: **Artist**. Input: variable *Songs* |
+| 9 | **Combine Text** | Input: *Artist* (from step 8). Separator: **New Lines** |
+| 10 | **Set Variable** | Name: `Artists`. Input: *Combined Text* |
+| 11 | **Get Details of Music** | Detail: **Duration**. Input: variable *Songs* |
+| 12 | **Round Number** | Input: *Duration* (from step 11). Round to: **Ones Place**. Mode: **Normal**. This makes whole seconds, e.g. `238` |
+| 13 | **Combine Text** | Input: *Rounded Number* (from step 12). Separator: **New Lines** |
+| 14 | **Set Variable** | Name: `Durations`. Input: *Combined Text* |
+| 15 | **Text** | The block below, with the four variables inserted where shown |
+| 16 | **Copy to Clipboard** | Input: *Text* (from step 15) |
+| 17 | **Show Notification** | `Copied ` + variable *Count* + ` songs. Paste into the app's Sync playlist box.` |
 
-Step 12's text. Type the first two lines and the `---…---` markers exactly;
-each `‹…›` is an inserted variable:
+Step 15's text. Type the first line and the `---…---` markers exactly; each
+`‹…›` is an inserted variable. **Don't add blank lines** between sections:
+every line under a heading is read as a value.
 
 ```
-anisong-playlist v1
+anisong-playlist v2
 🔥 AniSong MegaMix
+---count---
+‹Count›
 ---titles---
 ‹Titles›
 ---artists---
@@ -158,12 +163,15 @@ anisong-playlist v1
 
 **Check it once.** Run it, paste into a note, and confirm:
 - **one line per song** in each section;
-- **the same number of lines** in all three sections. The app pairs titles
-  with artists by position; if the counts differ it warns and matches on
-  titles only.
+- **the same number of lines** in all three sections, equal to the number
+  under `---count---`. The app pairs titles with artists by position; if a
+  section is short, it warns and matches without it;
+- **durations are whole numbers** like `238`, not `3:58` or `238.4`. If they
+  aren't, check step 12's settings.
 
-If step 3 returns one combined value instead of a list, wrap steps 3–10 in a
-**Repeat with Each** over *Songs*. That's slower, but still read-only.
+If step 5, 8, 11 or 12 returns one combined value instead of a list, wrap
+steps 5–14 in a **Repeat with Each** over *Songs*. That's slower, but still
+read-only.
 
 **Order:** songs from **Find Music** may not come out in playlist order, so the
 app uses this export for duplicate checks only. The "suggest last show"

@@ -27,7 +27,7 @@
   UI strings and the spike page's default fields use these exact names.
 - **Target playlist:** `🔥 AniSong MegaMix` (the app's default `playlistName`
   setting). Tell users to pick it from the Shortcuts picker, never type it.
-- **Clipboard format of `Anisong Export Playlist`:** `anisong-playlist v1`,
+- **Clipboard format of `Anisong Export Playlist`:** `anisong-playlist v2` (v1 still read),
   defined in `docs/SPEC.md` and parsed by `src/lib/playlistImport.ts`. Change
   all three together.
 

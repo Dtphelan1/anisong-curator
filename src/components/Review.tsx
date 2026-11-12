@@ -527,7 +527,7 @@ function PlaylistSync({ snapshot, playlistName, onSnapshot }: { snapshot: Playli
           <p className="muted small">
             Paste what <strong>Anisong Export Playlist</strong> copied. A Music.app export or rows copied with <kbd>⌘C</kbd> work too.
           </p>
-          <textarea className="paste" value={text} onChange={(e) => onText(e.target.value)} rows={4} spellCheck={false} placeholder="anisong-playlist v1 …" aria-label="Paste playlist to sync" />
+          <textarea className="paste" value={text} onChange={(e) => onText(e.target.value)} rows={4} spellCheck={false} placeholder="anisong-playlist v2 …" aria-label="Paste playlist to sync" />
           {parsed && (
             <>
               <p className="small">

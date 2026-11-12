@@ -223,7 +223,7 @@ describe('parsePlaylist: Export Playlist shortcut text', () => {
     const noTitles = parsePlaylist('anisong-playlist v1\nX\n---artists---\nLiSA');
     expect(noTitles.rows).toEqual([]);
     expect(noTitles.warnings.join(' ')).toMatch(/No ---titles---/);
-    expect(parsePlaylist('anisong-playlist v2\nX\n---titles---\nA').warnings.join(' ')).toMatch(/version v2/);
+    expect(parsePlaylist('anisong-playlist v3\nX\n---titles---\nA').warnings.join(' ')).toMatch(/version v3/);
     // Not the magic line: falls back to the tab/paste parser.
     expect(parsePlaylist('Anisong playlist\nGurenge').format).toBe('pasted');
   });
@@ -330,5 +330,69 @@ describe('real exports in __fixtures__/playlists', async () => {
         expect(r.sortedBy ?? null).toEqual(exp.sortedBy ? expect.objectContaining({ field: { name: 'title', artist: 'artist', album: 'album' }[col as string], direction }) : null);
       }
     }
+  });
+});
+
+describe('parsePlaylist: Export Playlist shortcut text, v2 (---count---)', () => {
+  const v2 = (count: string | null, titles: string[], artists: string[], durations: string[], gap = '') => [
+    'anisong-playlist v2', '🔥 AniSong MegaMix',
+    ...(count === null ? [] : ['---count---', count]),
+    '---titles---', ...titles, ...(gap ? [gap] : []),
+    '---artists---', ...artists, ...(gap ? [gap] : []),
+    '---durations---', ...durations,
+    '',
+  ].join('\n');
+
+  it('uses the count to keep a blank last artist and drop separator lines', () => {
+    // The last song has no artist: without a count this is ambiguous.
+    const r = parsePlaylist(v2('3', ['Gurenge', 'Uso', 'Untitled demo'], ['LiSA', 'SID', ''], ['238', '208', '61'], '\n'));
+    expect(r.warnings).toEqual([]);
+    expect(r.rows.map((x) => [x.title, x.artist, x.durationMs])).toEqual([
+      ['Gurenge', 'LiSA', 238_000], ['Uso', 'SID', 208_000], ['Untitled demo', '', 61_000],
+    ]);
+    expect(r.artistsKnown).toBe(true);
+  });
+
+  it('a blank artist in the middle stays aligned', () => {
+    const r = parsePlaylist(v2('3', ['A', 'B', 'C'], ['x', '', 'z'], ['1', '2', '3']));
+    expect(r.rows.map((x) => x.artist)).toEqual(['x', '', 'z']);
+  });
+
+  it('a list shorter than the count is not zipped', () => {
+    const r = parsePlaylist(v2('3', ['A', 'B', 'C'], ['x', 'y'], ['1', '2', '3']));
+    expect(r.artistsKnown).toBe(false);
+    expect(r.rows.map((x) => x.artist)).toEqual(['', '', '']);
+    expect(r.warnings.join(' ')).toMatch(/3 titles but 2 artists/);
+  });
+
+  it('warns about lines beyond the count and ignores them', () => {
+    const r = parsePlaylist(v2('2', ['A', 'B', 'stray'], ['x', 'y'], ['1', '2']));
+    expect(r.rows.map((x) => x.title)).toEqual(['A', 'B']);
+    expect(r.warnings.join(' ')).toMatch(/"titles" section has 1 line beyond the 2 songs/);
+  });
+
+  it('warns when titles are fewer than the count', () => {
+    const r = parsePlaylist(v2('4', ['A', 'B'], ['x', 'y'], ['1', '2']));
+    expect(r.warnings.join(' ')).toMatch(/Expected 4 songs but found 2 titles/);
+  });
+
+  it('falls back to v1 alignment when v2 has no or an unreadable count', () => {
+    const missing = parsePlaylist(v2(null, ['A', 'B'], ['x', 'y'], ['1', '2']));
+    expect(missing.rows).toHaveLength(2);
+    expect(missing.warnings.join(' ')).toMatch(/No ---count--- section/);
+    const junk = parsePlaylist(v2('two', ['A', 'B'], ['x', 'y'], ['1', '2']));
+    expect(junk.rows).toHaveLength(2);
+    expect(junk.warnings.join(' ')).toMatch(/Couldn't read the song count/);
+  });
+
+  it('still reads v1 text without warnings about the count', () => {
+    const r = parsePlaylist('anisong-playlist v1\nList\n---titles---\nA\n---artists---\nx\n---durations---\n1\n');
+    expect(r.rows).toHaveLength(1);
+    expect(r.warnings).toEqual([]);
+  });
+
+  it('reads plain-seconds durations, including decimals', () => {
+    const r = parsePlaylist(v2('2', ['A', 'B'], ['x', 'y'], ['238', '239.4']));
+    expect(r.rows.map((x) => x.durationMs)).toEqual([238_000, 239_400]);
   });
 });

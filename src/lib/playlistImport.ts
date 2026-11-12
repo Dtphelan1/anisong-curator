@@ -10,8 +10,9 @@
  *    whatever the list view shows (typically Name, Time, Artist, Album, …)
  *    with Time as m:ss. The mapping is guessed and reported as such.
  * 3. **Shortcut text** — what the read-only "Anisong Export Playlist" iPhone
- *    shortcut copies: an `anisong-playlist v1` line, the playlist name, then
- *    parallel `---titles---` / `---artists---` / `---durations---` lists.
+ *    shortcut copies: an `anisong-playlist v2` line, the playlist name, a
+ *    `---count---` of N, then parallel `---titles---` / `---artists---` /
+ *    `---durations---` lists of exactly N lines (contract: SPEC §6.2).
  *    Row order is not guaranteed to be playlist order (`ordered: false`).
  */
 
@@ -329,17 +330,20 @@ export function detectSort(rows: Pick<PlaylistRow, 'title' | 'artist' | 'album'>
 /* Shortcut text ("Anisong Export Playlist")                           */
 /* ------------------------------------------------------------------ */
 
-/** First non-blank line: `anisong-playlist v1`. */
+/** First non-blank line: `anisong-playlist v2` (v1 is still read). */
 const SHORTCUT_MAGIC = /^\s*anisong-playlist\s+v(\d+)[ \t]*(?:\r\n|\r|\n|$)/i;
 const SECTION = /^\s*-{2,}\s*([a-z]+)\s*-{2,}\s*$/i;
-type Section = 'titles' | 'artists' | 'durations';
-const SECTIONS: Section[] = ['titles', 'artists', 'durations'];
+type Section = 'count' | 'titles' | 'artists' | 'durations';
+const SECTIONS: Section[] = ['count', 'titles', 'artists', 'durations'];
+const LISTS: Exclude<Section, 'count'>[] = ['titles', 'artists', 'durations'];
 
 /**
- * Parallel lists, one item per line, in the same order:
+ * Parallel lists, one item per line, in the same order (contract: SPEC §6.2):
  *
- *     anisong-playlist v1
+ *     anisong-playlist v2
  *     🔥 AniSong MegaMix
+ *     ---count---
+ *     1
  *     ---titles---
  *     Gurenge
  *     ---artists---
@@ -347,10 +351,12 @@ const SECTIONS: Section[] = ['titles', 'artists', 'durations'];
  *     ---durations---
  *     238
  *
- * Blank lines inside a section are kept as empty entries (dropping them would
- * shift every later item onto the wrong song); blank lines at the end of a
- * section are separators, unless the list needs them to line up with the
- * others (a last song with no artist or duration). If a list's length
+ * With `---count---` (v2), each list is exactly that many lines, so a blank
+ * line is unambiguously an empty value (a song with no artist) and anything
+ * after the count is a separator. Without it (v1), blank lines inside a
+ * section are kept as empty entries; blank lines at the end of a section are
+ * separators, unless the list needs them to line up with the others (a last
+ * song with no artist or duration). If a list's length
  * disagrees with the titles it is
  * not zipped by index: artists (or durations) are dropped for the whole
  * snapshot, with a warning.
@@ -361,7 +367,7 @@ function parseShortcutText(text: string, encoding: string): ParseResult {
   const warnings: string[] = [];
   let i = lines.findIndex((l) => l.trim() !== '');
   const version = Number(lines[i]!.match(/v(\d+)/i)![1]);
-  if (version !== 1) warnings.push(`Unknown format version v${version}; reading it as v1.`);
+  if (version !== 1 && version !== 2) warnings.push(`Unknown format version v${version}; reading it as v2.`);
   i++;
 
   // The name is the next line, unless a section starts right away.
@@ -392,17 +398,40 @@ function parseShortcutText(text: string, encoding: string): ParseResult {
     else if (line.trim()) stray++;
   }
   if (stray) warnings.push(`Ignored ${stray} line${stray === 1 ? '' : 's'} before the first section.`);
-  // Trailing blank lines are usually separators, but a blank last item (a song
-  // with no artist or duration) looks the same. Trim them, then give back as
-  // many as a list needs to reach the longest list's length.
-  const trimmed = new Map<string[], number>();
-  for (const l of Object.values(lists)) {
-    let n = 0;
-    while (l.length && l[l.length - 1] === '') { l.pop(); n++; }
-    trimmed.set(l, n);
+  // The count (v2) says exactly how many lines each list has.
+  let count: number | null = null;
+  if (lists.count) {
+    const raw = lists.count.find((l) => l !== '') ?? '';
+    count = /^\d+$/.test(raw) ? Number(raw) : null;
+    if (count === null) warnings.push(`Couldn't read the song count ("${raw}"); lining the lists up without it.`);
+    delete lists.count;
+  } else if (version >= 2) {
+    warnings.push('No ---count--- section; lining the lists up without it.');
   }
-  const longest = Math.max(0, ...Object.values(lists).map((l) => l.length));
-  for (const [l, n] of trimmed) if (l.length) for (let k = 0; k < n && l.length < longest; k++) l.push('');
+
+  if (count !== null) {
+    for (const name of LISTS) {
+      const l = lists[name];
+      if (!l) continue;
+      // Short of the count: trailing blanks can only be separators.
+      if (l.length < count) while (l.length && l[l.length - 1] === '') l.pop();
+      const extra = l.slice(count).filter((x) => x !== '').length;
+      if (extra) warnings.push(`The "${name}" section has ${extra} line${extra === 1 ? '' : 's'} beyond the ${count} songs; ignored.`);
+      lists[name] = l.slice(0, count);
+    }
+  } else {
+    // Trailing blank lines are usually separators, but a blank last item (a song
+    // with no artist or duration) looks the same. Trim them, then give back as
+    // many as a list needs to reach the longest list's length.
+    const trimmed = new Map<string[], number>();
+    for (const l of Object.values(lists)) {
+      let n = 0;
+      while (l.length && l[l.length - 1] === '') { l.pop(); n++; }
+      trimmed.set(l, n);
+    }
+    const longest = Math.max(0, ...Object.values(lists).map((l) => l.length));
+    for (const [l, n] of trimmed) if (l.length) for (let k = 0; k < n && l.length < longest; k++) l.push('');
+  }
 
   const titles = lists.titles ?? [];
   const mapping: ColumnMapping = { title: 0, artist: null, album: null, time: null };
@@ -412,6 +441,7 @@ function parseShortcutText(text: string, encoding: string): ParseResult {
     return { ...base, rows: [], warnings, mapping, artistsKnown: false };
   }
   if (!titles.length) warnings.push('The playlist is empty.');
+  if (count !== null && titles.length < count) warnings.push(`Expected ${count} songs but found ${titles.length} titles. Check the shortcut.`);
 
   let artists: string[] | null = lists.artists ?? null;
   if (!artists || !artists.length) {

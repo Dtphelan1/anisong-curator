@@ -172,25 +172,31 @@ documented.
 
 ### 6.2 `Anisong Export Playlist`: read the playlist
 - **Input:** none.
-- **Output (clipboard):** the `anisong-playlist v1` text that the app's
+- **Output (clipboard):** the `anisong-playlist v2` text that the app's
   **Sync playlist** box parses (`playlistImport.ts`):
   ```
-  anisong-playlist v1
+  anisong-playlist v2
   <playlist name>
+  ---count---
+  <N, the number of songs>
   ---titles---
-  <one title per line>
+  <exactly N lines: one title per song>
   ---artists---
-  <one artist per line, same order>
+  <exactly N lines: one artist per song, same order>
   ---durations---
-  <one duration per line, same order; seconds or m:ss; optional>
+  <exactly N lines: whole seconds per song, same order; section optional>
   ```
-  The sections are parallel lists. A blank line inside a section is an empty
-  value and must stay (dropping it would shift every later song); blank lines
-  at the end of a section are separators, except as many as a list needs to
-  line up with the others. Durations are seconds (fractions allowed), `m:ss`
-  or `h:mm:ss`. If the title and artist counts still differ, the app doesn't
-  zip them: it warns and matches that snapshot on titles only (durations
-  likewise).
+  The sections are parallel lists of exactly N lines. **Every line under a
+  heading is a value; there are no separator lines.** A blank line is an
+  empty value (a song with no artist) and keeps its place. The count is what
+  makes that unambiguous.
+- **Durations** are plain whole seconds (e.g. `238`). The parser also accepts
+  fractions, `m:ss` and `h:mm:ss` leniently.
+- **Validation:** a section shorter than N isn't zipped. The app warns and
+  matches that snapshot without it (titles only, or no durations). Lines beyond
+  N are ignored, with a warning.
+- **v1** (no `---count---`) is still read. Its lists are aligned by trimming
+  trailing blank lines, which can't tell a separator from a blank last value.
 - **Constraints:** read-only, and no per-song loop (it must stay fast on a large
   playlist). Row order isn't guaranteed to be playlist order, so it's used for
   duplicate checks only. The "suggest last show" feature (§9.5) needs an
