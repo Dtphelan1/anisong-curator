@@ -147,77 +147,94 @@ duplicates. That's a fine outcome for the spike. It just changes M4.
 
 ---
 
-## 4. `Anisong Add Kept`: add the kept list, skipping duplicates
+## 4. Adding kept songs: two shortcuts
 
-This is the shortcut the app's **Kept** section is built for. In the app, keep
-the **Shortcut** format, press **Copy** (or **Share…** on a secure origin), then
-run this shortcut. Each line is one song:
+Build these as **two separate shortcuts**, by hand, one action at a time. Keep
+the simple one as a fallback, so a broken dedupe version never leaves you
+unable to add songs. Asking Siri to "update" a shortcut edits it in place, so
+build new ones.
+
+The app's **Kept** section, in **Shortcut** format, copies one song per line:
 
 ```
 Gurenge | LiSA | https://music.apple.com/us/song/1538286723
 ```
 
-The app has already removed known duplicates (SPEC §9.4). This shortcut is the
-safety net for songs added to the playlist outside the app since your last
-export: it skips any line whose `title | artist` already matches a song in the
-playlist. Songs are added in the order of the lines.
+**Tips for iPhone:**
+- To put a variable into a field, tap the field. The variable bar above the
+  keyboard shows recent outputs; **Select Variable** lists all of them.
+- To use a property of an item (e.g. a song's **Title**), insert the
+  variable, tap the inserted token, then pick the property.
+- Name each variable exactly as written below. The steps refer back to them.
 
-Actions:
-1. *Receive **Text** input from **Share Sheet***; *If there's no input*:
-   **Get Clipboard**. **Set Variable** `Input`.
-2. **Find Music** where **Playlist** *is* **🔥 AniSong MegaMix** (no limit,
-   no sort).
-3. **Repeat with Each** item in *Music*:
-   **Text** `‹Repeat Item › Name› | ‹Repeat Item › Artist›` → **End Repeat**.
-4. **Combine Text** *Repeat Results* with **New Lines** → **Change Case** to
-   **lowercase** → **Set Variable** `Existing`.
-5. **Split Text** `Input` by **New Lines** → **Repeat with Each** line:
-   - **If** *Repeat Item* *contains* `music.apple.com`:
-     - **Split Text** *Repeat Item* by **Custom** ` | ` (space, bar, space).
-     - **Get Item from List**: item **1** → **Set Variable** `Title`.
-       Item **2** → **Set Variable** `Artist`.
-     - **Text** `‹Title› | ‹Artist›` → **Change Case** **lowercase** →
-       **Set Variable** `Key`.
-     - **If** `Existing` *contains* `Key`: **Add to Variable** `Skipped`
-       (the Title).
-       **Otherwise**: **Get URLs from Input** (*Repeat Item*) →
-       **Add to Variable** `ToAdd`.
-     - **End If**.
-   - **End If**.
-6. **End Repeat**. If `ToAdd` has no items: **Show Alert** "Nothing new to
-   add (skipped *Count of Skipped*)", then **Stop This Shortcut**.
-7. **Choose from Menu**: "Add *Count of ToAdd* songs to…":
-   - **🔥 AniSong MegaMix**: **Repeat with Each** in `ToAdd` → **Add to
-     Playlist** **🔥 AniSong MegaMix** → **End Repeat**.
-   - **New staging playlist**: **Create Playlist** `anisong-curator ‹Current
-     Date›` with items `ToAdd`.
-8. **Show Notification** "Added *Count of ToAdd*, skipped *Count of Skipped*
-   duplicates".
+### 4a. `Anisong Add Kept`: simple, no duplicate check (fallback)
 
-Siri prompt (paste or dictate; replace the playlist name if it changes):
+| # | Action | Settings |
+|---|---|---|
+| 1 | **Get Clipboard** | none |
+| 2 | **Get URLs from Input** | Input: *Clipboard* |
+| 3 | **Choose from Menu** | Prompt: `Add songs to…`. Items: `🔥 AniSong MegaMix`, `New playlist` |
+| 4 | *(under **🔥 AniSong MegaMix**)* **Add to Playlist** | Music: *URLs* (from step 2). Playlist: pick **🔥 AniSong MegaMix** from the picker; don't type it |
+| 5 | *(under **New playlist**)* **Create Playlist** | Name: `anisong-curator ` + *Current Date*. Items (tap *Show More*): *URLs* |
+| 6 | **End Menu** | added automatically |
 
-> Update my shortcut "Anisong Add Kept" (or create it). It takes text from the
-> share sheet or, if there's no input, from the clipboard. First, find all songs
-> in my playlist "🔥 AniSong MegaMix" and make a lowercase list where each line
-> is the song's name, then " | ", then its artist. Then go through the input
-> text line by line. Skip lines that don't contain "music.apple.com". For the
-> others, split the line by " | ": the first part is the title and the second
-> is the artist. Make a lowercase "title | artist" key. If the playlist list
-> already contains that key, add the title to a Skipped list. Otherwise add the
-> line's URL to a To Add list. If To Add is empty, show an alert "Nothing new to
-> add" and stop. Otherwise ask with a menu whether to add the To Add songs one
-> at a time, in order, to "🔥 AniSong MegaMix", or to create a new playlist named
-> "anisong-curator" plus today's date with them. Finish with a notification
-> saying how many were added and how many duplicates were skipped.
+This adds every link, including duplicates. The app's held-back list is
+the only duplicate protection when you use this one.
 
-**Pick the playlist from the action's picker** rather than typing its name; the
-🔥 emoji makes typed names easy to get wrong.
+### 4b. `Anisong Add Kept (dedupe)`: skips songs already in the playlist
 
-Notes:
-- The `contains` check is plain text, so it's stricter than the app's: a song
-  whose library name differs from the catalog name (e.g. added from another
-  storefront) can slip through. The app's check is the primary one.
-- **Quick test worth doing once:** run the shortcut twice with the same song
-  and the duplicate check temporarily removed. If **Add to Playlist** already
-  refuses duplicates by itself, note it. The check stays either way, since a
-  silent duplicate can't be undone from Shortcuts.
+| # | Action | Settings |
+|---|---|---|
+| 1 | **Get Clipboard** | none |
+| 2 | **Set Variable** | Name: `Input`. Input: *Clipboard* |
+| 3 | **Find Music** | Filter: **Playlist** *is* **🔥 AniSong MegaMix** (picker). No sort, no limit |
+| 4 | **Repeat with Each** | Input: *Music* (from step 3) |
+| 5 | **Text** | Insert *Repeat Item*, tap it → **Title**; then type ` \| ` (space, bar, space); then insert *Repeat Item* again, tap it → **Artist** |
+| 6 | **End Repeat** | added automatically |
+| 7 | **Combine Text** | Input: *Repeat Results*. Separator: **New Lines** |
+| 8 | **Change Case** | Input: *Combined Text*. Case: **lowercase** |
+| 9 | **Set Variable** | Name: `Existing`. Input: *Updated Text* (from step 8) |
+| 10 | **Split Text** | Input: variable *Input*. Separator: **New Lines** |
+| 11 | **Repeat with Each** | Input: *Split Text* |
+| 12 | **Set Variable** | Name: `Line`. Input: *Repeat Item* |
+| 13 | **If** | Input: *Line*. Condition: **contains** `music.apple.com` |
+| 14 | **Replace Text** | Find: ` \| https?://.*$` (leading space). Replace with: *(leave empty)*. In: *Line*. Tap *Show More*: turn **Regular Expression** on. The result is `Gurenge \| LiSA` |
+| 15 | **Change Case** | Input: *Updated Text* (from step 14). Case: **lowercase** |
+| 16 | **Set Variable** | Name: `Key`. Input: *Updated Text* (from step 15) |
+| 17 | **If** | Input: variable *Existing*. Condition: **contains** → insert variable *Key* |
+| 18 | **Add to Variable** | Name: `Skipped`. Input: *Key* |
+| 19 | **Otherwise** | added with step 17 |
+| 20 | **Get URLs from Input** | Input: *Line* |
+| 21 | **Add to Variable** | Name: `ToAdd`. Input: *URLs* (from step 20) |
+| 22 | **End If** | closes step 17 |
+| 23 | **End If** | closes step 13 (it sits just above **End Repeat**) |
+| 24 | **End Repeat** | closes step 11 |
+| 25 | **Count** | Count **Items** in variable *ToAdd* |
+| 26 | **If** | Input: *Count* (from step 25). Condition: **is** `0` |
+| 27 | **Show Alert** | `Nothing new to add. All songs are already in the playlist.` Turn *Show Cancel Button* off |
+| 28 | **Stop This Shortcut** | none |
+| 29 | **End If** | closes step 26 |
+| 30 | **Choose from Menu** | Prompt: `Add songs to…`. Items: `🔥 AniSong MegaMix`, `New playlist` |
+| 31 | *(under **🔥 AniSong MegaMix**)* **Add to Playlist** | Music: variable *ToAdd*. Playlist: **🔥 AniSong MegaMix** (picker) |
+| 32 | *(under **New playlist**)* **Create Playlist** | Name: `anisong-curator ` + *Current Date*. Items: variable *ToAdd* |
+| 33 | **End Menu** | added automatically |
+| 34 | **Count** | Count **Items** in variable *Skipped* |
+| 35 | **Show Notification** | `Done. Skipped ` + *Count* (from step 34) + ` duplicate(s).` |
+
+**Before trusting it, check these:**
+- **The list is right.** Temporarily add a **Quick Look** after step 9 and run
+  it. You should see lines like `gurenge | lisa`, one per playlist song. If
+  you see one line, step 7 isn't using *Repeat Results*. If you see titles
+  without artists, step 5's second token isn't set to **Artist**.
+- **Duplicates are skipped.** Copy a list that includes a song already in the
+  playlist (in the app, tick **add anyway** to force it in), run with **New
+  playlist**, and check that song is missing from the new playlist and the
+  notification says `Skipped 1`.
+- **Nesting.** The **If / Otherwise / End If** blocks in steps 13–23 must sit
+  *inside* the **Repeat** of step 11. If step 25 appears indented, an
+  **End** is in the wrong place.
+
+**Known limits.** The check is exact text after lowercasing, so a song whose
+library title differs from the catalog title won't be caught; the app's check
+is more forgiving. A title that contains another (`again | yui` inside
+`again | yuika`) can cause a false skip. Both are rare.
