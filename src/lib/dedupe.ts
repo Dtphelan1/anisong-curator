@@ -26,7 +26,7 @@ export interface ExportItem {
   altArtists?: string[];
 }
 
-/** One song the app recorded as added ("I added these"). */
+/** One song the app recorded as added ("Yes, mark as added"). */
 export interface AddedRecord {
   trackId: number;
   title: string;
@@ -349,12 +349,6 @@ export const REASON_LABEL: Record<HoldReason, string> = {
   'already-added': 'already added by the app',
   'in-playlist': 'already in playlist',
   'likely-in-playlist': 'likely in playlist',
-  'other-version': 'other version in playlist',
-};
-
-export const TIER_LABEL: Record<DupTier, string> = {
-  duplicate: 'already in playlist',
-  'likely-duplicate': 'likely in playlist',
   'other-version': 'other version in playlist',
 };
 

@@ -128,12 +128,15 @@ export function useMatching(items: ReviewItem[], country: string, prefs: MatchPr
 
 export function useDecisions(keys: string[]) {
   const [decisions, setDecisions] = useState<Map<string, Decision>>(new Map());
+  /** True once the stored decisions for `keys` have been read. */
+  const [loaded, setLoaded] = useState(false);
   const keysKey = keys.join('|');
   useEffect(() => {
     let cancelled = false;
     db.decisions.bulkGet(keys).then((ds) => {
       if (cancelled) return;
       setDecisions(new Map(ds.filter((d): d is Decision => !!d).map((d) => [d.key, d])));
+      setLoaded(true);
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -148,6 +151,15 @@ export function useDecisions(keys: string[]) {
     const d: Decision = { key, decision, trackId, decidedAt: Date.now(), ...(addAnyway && decision === 'keep' ? { addAnyway: true } : {}) };
     setDecisions((m) => new Map(m).set(key, d));
     await db.decisions.put(d);
+  }, []);
+
+  /** The same skip or later decision for several songs at once ("Later: whole show", "Skip the rest"). */
+  const decideMany = useCallback(async (keys: string[], decision: 'skip' | 'later') => {
+    if (!keys.length) return;
+    const now = Date.now();
+    const ds: Decision[] = keys.map((key) => ({ key, decision, trackId: null, decidedAt: now }));
+    setDecisions((m) => { const n = new Map(m); for (const d of ds) n.set(d.key, d); return n; });
+    await db.decisions.bulkPut(ds);
   }, []);
 
   /** Set or clear "add anyway" on existing keep decisions (no-op for others). */
@@ -166,5 +178,5 @@ export function useDecisions(keys: string[]) {
     await db.decisions.bulkPut(updated);
   }, []);
 
-  return { decisions, decide, setAddAnyway };
+  return { decisions, loaded, decide, decideMany, setAddAnyway };
 }

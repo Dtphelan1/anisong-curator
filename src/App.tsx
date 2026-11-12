@@ -9,11 +9,15 @@ import { resolveThemes, type ResolveProgress } from './lib/themes';
 import { ShowPicker } from './components/ShowPicker';
 import { PlaylistPanel } from './components/PlaylistPanel';
 import { ThemeList } from './components/ThemeList';
-import { Review } from './components/Review';
+import { Review } from './components/review/Review';
 import { buildReviewItems } from './lib/useMatching';
 import { sortThemes } from './lib/themes';
 
 type Step = 'pick' | 'themes' | 'review';
+
+/** The step you were on, so a reload mid-review goes straight back to it (the review restores its own place). */
+const STEP_KEY = 'anisong-curator.step';
+const savedStep = (): Step | null => { try { const v = localStorage.getItem(STEP_KEY); return v === 'review' ? 'review' : null; } catch { return null; } };
 
 export function App() {
   const [settings, update] = useSettings();
@@ -27,6 +31,12 @@ export function App() {
   const [progress, setProgress] = useState<ResolveProgress | null>(null);
   const [snapshot, setSnapshot] = useState<PlaylistSnapshot | null>(null);
   const [suggestedId, setSuggestedId] = useState<number | null>(null);
+  /** Reloaded mid-review: resolve the songs from the cache, then reopen the review. */
+  const [resuming, setResuming] = useState(() => savedStep() === 'review');
+  useEffect(() => {
+    if (resuming) return;
+    try { localStorage.setItem(STEP_KEY, step); } catch { /* private mode */ }
+  }, [step, resuming]);
 
   // Implicit-grant return, then cached list.
   useEffect(() => {
@@ -35,7 +45,7 @@ export function App() {
       update({ token });
       fetchViewerName(token).then((userName) => update({ userName })).catch((e: Error) => setError(e.message));
     }
-    loadShows().then(({ shows, at }) => { setShows(shows); setLoadedAt(at); });
+    loadShows().then(({ shows, at }) => { setShows(shows); setLoadedAt(at); if (!shows.length) setResuming(false); });
     loadLatestSnapshot().then(setSnapshot);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -68,14 +78,39 @@ export function App() {
     }
   }
 
-  async function findThemes(refresh = false) {
-    setStep('themes'); setThemeErrors(new Map()); setLookups(new Map());
+  async function findThemes(refresh = false, resume = false) {
+    if (!resume) setStep('themes');
+    setThemeErrors(new Map()); setLookups(new Map());
     setProgress({ done: 0, total: candidates.length, phase: 'cache' });
     const { lookups, errors } = await resolveThemes(candidates.map((c) => c.show), {
       cache: themeCache(), onProgress: setProgress, refresh,
     });
     setLookups(lookups); setThemeErrors(errors);
+    if (resume) { setStep('review'); setResuming(false); }
   }
+
+  useEffect(() => {
+    if (resuming && candidates.length) findThemes(false, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resuming, candidates.length > 0]);
+
+  if (step === 'review') {
+    return (
+      <Review
+        items={reviewItems}
+        country={settings.country}
+        prefs={prefs}
+        autoplay={settings.autoplay}
+        playlistName={settings.playlistName}
+        snapshot={snapshot}
+        onSnapshot={setSnapshot}
+        onSettings={update}
+        onBack={() => setStep('themes')}
+        onNewSession={() => setStep('pick')}
+      />
+    );
+  }
+  if (resuming) return <div className="app"><p className="muted resuming">Restoring your review…</p></div>;
 
   return (
     <div className="app">
@@ -149,20 +184,6 @@ export function App() {
           onRetry={() => findThemes(true)}
           onReview={() => setStep('review')}
           reviewCount={reviewItems.length}
-        />
-      )}
-
-      {step === 'review' && (
-        <Review
-          items={reviewItems}
-          country={settings.country}
-          prefs={prefs}
-          autoplay={settings.autoplay}
-          playlistName={settings.playlistName}
-          snapshot={snapshot}
-          onSnapshot={setSnapshot}
-          onSettings={update}
-          onBack={() => setStep('themes')}
         />
       )}
     </div>
