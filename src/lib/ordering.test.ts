@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { FuzzyDate, ListStatus, Show } from '../types';
 import { candidatesAfterBound, fuzzyDateKey, orderShows, unixToDateKey, DEFAULT_ORDER } from './ordering';
 
+/** These tests were written against ascending order; the app default is now newest-first. */
+const ASC = { ...DEFAULT_ORDER, direction: 'asc' as const };
 const D = (year: number | null, month: number | null = null, day: number | null = null): FuzzyDate => ({ year, month, day });
 const unix = (iso: string) => Date.parse(iso) / 1000;
 
@@ -46,12 +48,12 @@ describe('orderShows', () => {
   ];
 
   it('sorts bucket A chronologically, puts in-progress after, and excludes PLANNING', () => {
-    const o = orderShows(shows, DEFAULT_ORDER);
+    const o = orderShows(shows, ASC);
     expect(names(o)).toEqual(['C-nodate', 'C-2021', 'Dropped-2022', 'C-2023', 'Paused-2024', 'Rewatching', 'Watching']);
   });
 
   it('marks fallback and missing keys', () => {
-    const o = orderShows(shows, DEFAULT_ORDER);
+    const o = orderShows(shows, ASC);
     const src = Object.fromEntries(o.map((x) => [x.show.title.romaji, x.keySource]));
     expect(src['C-nodate']).toBe('missing');
     expect(src['Dropped-2022']).toBe('fallback');
@@ -59,13 +61,13 @@ describe('orderShows', () => {
   });
 
   it('descending keeps in-progress at the recent end (first)', () => {
-    const o = orderShows(shows, { ...DEFAULT_ORDER, direction: 'desc' });
+    const o = orderShows(shows, { ...ASC, direction: 'desc' });
     expect(names(o).slice(0, 2)).toEqual(['Watching', 'Rewatching']);
     expect(names(o).at(-1)).toBe('C-nodate');
   });
 
   it('can exclude dropped and paused', () => {
-    const o = orderShows(shows, { ...DEFAULT_ORDER, includeDropped: false, includePaused: false });
+    const o = orderShows(shows, { ...ASC, includeDropped: false, includePaused: false });
     expect(names(o)).not.toContain('Dropped-2022');
     expect(names(o)).not.toContain('Paused-2024');
   });
@@ -76,14 +78,14 @@ describe('orderShows', () => {
       show({ name: 'a', status: 'COMPLETED', score: 80 }),
       show({ name: 'z', status: 'COMPLETED', score: 60 }),
     ];
-    expect(names(orderShows(s, { ...DEFAULT_ORDER, field: 'score' }))).toEqual(['z', 'a', 'b']);
+    expect(names(orderShows(s, { ...ASC, field: 'score' }))).toEqual(['z', 'a', 'b']);
   });
 });
 
 describe('candidatesAfterBound', () => {
   const s = ['a', 'b', 'c', 'd'].map((n, i) => show({ name: n, status: 'COMPLETED', completedAt: D(2020 + i, 1, 1) }));
-  const asc = orderShows(s, DEFAULT_ORDER);
-  const desc = orderShows(s, { ...DEFAULT_ORDER, direction: 'desc' });
+  const asc = orderShows(s, ASC);
+  const desc = orderShows(s, { ...ASC, direction: 'desc' });
   const bId = s[1]!.anilistId;
 
   it('returns shows more recent than the bound in either direction', () => {
@@ -93,5 +95,11 @@ describe('candidatesAfterBound', () => {
   it('returns everything without a (known) bound', () => {
     expect(candidatesAfterBound(asc, null, 'asc')).toHaveLength(4);
     expect(candidatesAfterBound(asc, 999_999, 'asc')).toHaveLength(4);
+  });
+});
+
+describe('DEFAULT_ORDER', () => {
+  it('is newest first', () => {
+    expect(DEFAULT_ORDER.direction).toBe('desc');
   });
 });

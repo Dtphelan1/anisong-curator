@@ -47,9 +47,10 @@ export function App() {
   );
 
   const reviewItems = useMemo(
-    () => buildReviewItems(candidates.map((c) => c.show), (s) =>
+    // Review and export run oldest → newest (playlist order) whatever the display direction.
+    () => buildReviewItems((settings.order.direction === 'desc' ? [...candidates].reverse() : candidates).map((c) => c.show), (s) =>
       sortThemes(lookups.get(s.anilistId)?.themes ?? []).filter((t) => settings.includeInserts || t.kind !== 'IN')),
-    [candidates, lookups, settings.includeInserts],
+    [candidates, lookups, settings.includeInserts, settings.order.direction],
   );
   const playlistIndex = useMemo(() => (snapshot ? indexPlaylist(snapshot.rows) : null), [snapshot]);
   const prefs = useMemo(() => ({ preferTvSize: settings.preferTvSize }), [settings.preferTvSize]);

@@ -210,6 +210,8 @@ Sort fields: `completedAt`, `startedAt`, `updatedAt`, `createdAt` (added),
 - **Bucket A**, sorted by the chosen field: `COMPLETED`, `DROPPED`, `PAUSED`.
 - **Bucket B**, after all of A: `CURRENT`, `REPEATING`.
 - `PLANNING` is excluded.
+- **Default display: newest first.** Review and export always run oldest →
+  newest (playlist order), whatever the display direction.
 
 Edge cases:
 - **Fuzzy dates.** Any of `{year, month, day}` can be null. Sort key:

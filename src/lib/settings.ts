@@ -19,6 +19,8 @@ export interface Settings {
   autoplay: boolean;
   /** The running playlist kept songs go into (as named in Apple Music). */
   playlistName: string;
+  /** Bumped when a default changes for existing users (2: newest-first sort). */
+  defaultsVersion?: number;
 }
 
 const KEY = 'anisong-curator.settings.v1';
@@ -34,6 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   preferTvSize: false,
   autoplay: true,
   playlistName: '🔥 AniSong MegaMix',
+  defaultsVersion: 2,
 };
 
 function read(): Settings {
@@ -41,7 +44,12 @@ function read(): Settings {
     const raw = localStorage.getItem(KEY);
     if (!raw) return DEFAULT_SETTINGS;
     const parsed = JSON.parse(raw) as Partial<Settings>;
-    return { ...DEFAULT_SETTINGS, ...parsed, order: { ...DEFAULT_ORDER, ...parsed.order } };
+    const merged: Settings = { ...DEFAULT_SETTINGS, ...parsed, order: { ...DEFAULT_ORDER, ...parsed.order } };
+    // One-time migration: the default sort became newest-first. Settings saved
+    // under the old default switch once; a later explicit choice sticks.
+    if ((parsed.defaultsVersion ?? 1) < 2) merged.order = { ...merged.order, direction: 'desc' };
+    merged.defaultsVersion = 2;
+    return merged;
   } catch {
     return DEFAULT_SETTINGS;
   }

@@ -18,9 +18,10 @@ export interface OrderOptions {
   includePaused: boolean;
 }
 
+/** Newest first by default; review and export still run oldest → newest (playlist order). */
 export const DEFAULT_ORDER: OrderOptions = {
   field: 'completedAt',
-  direction: 'asc',
+  direction: 'desc',
   includeDropped: true,
   includePaused: true,
 };

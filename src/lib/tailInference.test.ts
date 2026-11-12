@@ -10,10 +10,12 @@ import type { PlaylistRow } from './playlistImport';
 import { buildThemeIndex, findInPlaylist, indexPlaylist, inferTail, mapRow, titleStems } from './tailInference';
 import { mapAnimeThemes, type AtGqlResponse } from './themes';
 
+/** These tests were written against ascending order; the app default is now newest-first. */
+const ASC = { ...DEFAULT_ORDER, direction: 'asc' as const };
 const themes = mapAnimeThemes(fixture as AtGqlResponse, FIXTURE_IDS);
 const themesFor = (s: Show) => themes.get(s.anilistId) ?? [];
 const index = buildThemeIndex(SHOWS, themesFor);
-const ordered = orderShows(SHOWS, DEFAULT_ORDER);
+const ordered = orderShows(SHOWS, ASC);
 const label = (h: { show: Show; theme: Theme } | null) => (h ? `${h.show.anilistId}:${h.theme.slug}` : null);
 const row = (title: string, artist: string, album = '', durationMs: number | null = null, position = 1): PlaylistRow => ({ position, title, artist, album, durationMs });
 
@@ -94,7 +96,7 @@ describe('inferTail', () => {
   });
 
   it('gives the same show when sorted newest first', () => {
-    const desc = orderShows(SHOWS, { ...DEFAULT_ORDER, direction: 'desc' });
+    const desc = orderShows(SHOWS, { ...ASC, direction: 'desc' });
     const r = inferTail({ rows: TAIL_ROWS, index, ordered: desc, direction: 'desc' });
     expect(r.suggestion!.show.anilistId).toBe(166613);
     expect(r.suggestion!.orderIndex).toBe(0);
@@ -102,7 +104,7 @@ describe('inferTail', () => {
 
   it('follows the sort field: by start date a different show is the most recent', () => {
     const started = SHOWS.map((s) => ({ ...s, startedAt: s.anilistId === 182587 ? { year: 2026, month: 4, day: 1 } : { year: 2020, month: 1, day: 1 } }));
-    const ord = orderShows(started, { ...DEFAULT_ORDER, field: 'startedAt' });
+    const ord = orderShows(started, { ...ASC, field: 'startedAt' });
     const idx = buildThemeIndex(started, themesFor);
     expect(inferTail({ rows: TAIL_ROWS, index: idx, ordered: ord, direction: 'asc' }).suggestion!.show.anilistId).toBe(182587);
   });
@@ -115,7 +117,7 @@ describe('inferTail', () => {
 
   it('skips shows the current filters exclude, and counts them', () => {
     const dropped = SHOWS.map((s) => (s.anilistId === 166613 ? { ...s, status: 'DROPPED' as const } : s));
-    const ord = orderShows(dropped, { ...DEFAULT_ORDER, includeDropped: false });
+    const ord = orderShows(dropped, { ...ASC, includeDropped: false });
     const r = inferTail({ rows: TAIL_ROWS, index: buildThemeIndex(dropped, themesFor), ordered: ord, direction: 'asc' });
     expect(r.excluded).toBe(2);
     expect(r.suggestion!.show.anilistId).toBe(172463);
@@ -137,7 +139,7 @@ describe('inferTail', () => {
     const movie: Show = { ...SHOWS[0]!, anilistId: 1, title: { romaji: 'Recap Movie', english: null, native: null }, completedAt: { year: 2027, month: 1, day: 1 } };
     const shows = [...SHOWS, movie];
     const themesFor2 = (s: Show) => (s.anilistId === 1 ? themesFor(SHOWS[0]!).filter((t) => t.slug === 'OP1').map((t) => ({ ...t, anilistId: 1 })) : themesFor(s));
-    const ord = orderShows(shows, DEFAULT_ORDER);
+    const ord = orderShows(shows, ASC);
     const r = inferTail({ rows: [row('Again', 'YUI', 'again - EP')], index: buildThemeIndex(shows, themesFor2), ordered: ord, direction: 'asc' });
     expect(r.tail[0]!.hits.map((h) => h.show.anilistId).sort()).toEqual([1, 5114]);
     expect(r.suggestion!.show.anilistId).toBe(5114);
@@ -158,7 +160,7 @@ describe('inferTail', () => {
     const shows = [...SHOWS, ...big];
     const t0 = performance.now();
     const idx = buildThemeIndex(shows, (s) => bigThemes.get(s.anilistId) ?? themesFor(s));
-    const r = inferTail({ rows: [...TAIL_ROWS, ...TAIL_ROWS].slice(-30), index: idx, ordered: orderShows(shows, DEFAULT_ORDER), direction: 'asc' });
+    const r = inferTail({ rows: [...TAIL_ROWS, ...TAIL_ROWS].slice(-30), index: idx, ordered: orderShows(shows, ASC), direction: 'asc' });
     const ms = performance.now() - t0;
     expect(idx.entries.length).toBeGreaterThan(2000);
     expect(r.suggestion!.show.anilistId).toBe(166613);
