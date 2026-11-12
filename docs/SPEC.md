@@ -389,11 +389,25 @@ Thresholds are tuned on real AnimeThemes and iTunes names in
 on ties). Rows are indexed by title bigrams, so a 2,000-row playlist × 50 kept
 songs takes tens of milliseconds.
 
-**In the UI.** Review badges use the same scoring: "already in playlist",
-"likely in playlist", "other version in playlist" (exact duplicates can be
-hidden). The Kept section splits into **To add** and **Held back**: each held
-song shows its reason, the matched row, the tier and the score, with
-**add anyway**. Only **To add** is copied.
+**In the UI.** The review uses the same scoring, so what the card says is what
+the export does.
+- **Every song is still reviewed;** nothing is hidden or skipped for you.
+- **One "already have" colour** (violet `--have`, distinct from the confidence
+  and warning colours) marks it everywhere: the badge ("already in playlist" is
+  filled; "likely" is outlined; "other version" is dashed), a banner above the
+  match naming the matched playlist row and its score, a tinted card frame, and
+  a stripe on the queue row.
+- **On such a song, Keep becomes "Keep (held back)"** (`K`), and **Keep & add
+  anyway** (`A`) overrides it. The override is stored on the decision
+  (`addAnyway`), so the card, the queue and the Kept list agree and it survives
+  reloads. It's cleared when the song is recorded as added.
+- **Queue markers say what will happen:** `✓` exported, `⊘` kept but held back,
+  `✓+` add anyway, `…` later, `✕` skipped. A **Later** list keeps deferred songs
+  visible.
+- **The Kept section** (with **Sync playlist**, shown even before anything is
+  kept, so the flags work during review) splits into **To add** and **Held
+  back**. Each held song shows its reason, the matched row, the tier and the
+  score, with **add anyway**. Only **To add** is copied.
 
 **Open:** does the Shortcuts **Add to Playlist** action skip songs already in
 the playlist? (The Music app asks; Shortcuts may add silently.) Either way the

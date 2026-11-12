@@ -12,6 +12,8 @@ export interface Decision {
   /** Chosen Apple Music track when kept. */
   trackId: number | null;
   decidedAt: number;
+  /** Kept even though it looks like it's already in the playlist ("add anyway"). */
+  addAnyway?: boolean;
 }
 
 /** An imported copy of the playlist: Music.app export, pasted rows, or the Anisong Export Playlist shortcut's text. */

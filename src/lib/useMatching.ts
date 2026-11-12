@@ -139,16 +139,32 @@ export function useDecisions(keys: string[]) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keysKey]);
 
-  const decide = useCallback(async (key: string, decision: DecisionValue | null, trackId: number | null) => {
+  const decide = useCallback(async (key: string, decision: DecisionValue | null, trackId: number | null, addAnyway = false) => {
     if (decision === null) {
       setDecisions((m) => { const n = new Map(m); n.delete(key); return n; });
       await db.decisions.delete(key);
       return;
     }
-    const d: Decision = { key, decision, trackId, decidedAt: Date.now() };
+    const d: Decision = { key, decision, trackId, decidedAt: Date.now(), ...(addAnyway && decision === 'keep' ? { addAnyway: true } : {}) };
     setDecisions((m) => new Map(m).set(key, d));
     await db.decisions.put(d);
   }, []);
 
-  return { decisions, decide };
+  /** Set or clear "add anyway" on existing keep decisions (no-op for others). */
+  const current = useRef(decisions);
+  current.current = decisions;
+  const setAddAnyway = useCallback(async (keys: string[], value: boolean) => {
+    const updated: Decision[] = [];
+    for (const key of keys) {
+      const d = current.current.get(key);
+      if (!d || d.decision !== 'keep' || !!d.addAnyway === value) continue;
+      const { addAnyway: _old, ...rest } = d;
+      updated.push(value ? { ...rest, addAnyway: true } : rest);
+    }
+    if (!updated.length) return;
+    setDecisions((m) => { const n = new Map(m); for (const d of updated) n.set(d.key, d); return n; });
+    await db.decisions.bulkPut(updated);
+  }, []);
+
+  return { decisions, decide, setAddAnyway };
 }

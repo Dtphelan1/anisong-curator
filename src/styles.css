@@ -2,11 +2,14 @@
   --bg: #ffffff; --fg: #1b1b1f; --muted: #6b6b75; --line: #e2e2e8; --card: #f7f7f9;
   --accent: #3557d4; --accent-fg: #fff; --ok: #1a7f37; --bad: #c62828; --warn: #a15c00;
   --bound: #fff3c4; --done: 0.45;
+  /* "Already have": songs already in the playlist. Distinct from ok/warn/bad/accent. */
+  --have: #9333ea; --have-fg: #ffffff; --have-bg: #f7f0fe;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
   :root { --bg: #16161a; --fg: #e8e8ec; --muted: #9a9aa5; --line: #33333b; --card: #1f1f25;
-    --accent: #8aa2ff; --accent-fg: #10121a; --ok: #4cc26b; --bad: #ff6b6b; --warn: #f0ad4e; --bound: #4a3f12; }
+    --accent: #8aa2ff; --accent-fg: #10121a; --ok: #4cc26b; --bad: #ff6b6b; --warn: #f0ad4e; --bound: #4a3f12;
+    --have: #c084fc; --have-fg: #1d1030; --have-bg: #2a1f3a; }
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, sans-serif; }
@@ -89,7 +92,6 @@ table.rows td, table.tail-map td { padding: 3px 6px; }
 table.tail-map tr.unmatched td { opacity: 0.6; }
 table.tail-map tr.bound { background: var(--bound); }
 .badge.suggested { color: var(--accent); border-color: currentColor; }
-.badge.in-playlist { color: var(--ok); border-color: currentColor; }
 
 /* Kept-list export */
 .segmented { display: inline-flex; border: 1px solid var(--accent); border-radius: 6px; overflow: hidden; }
@@ -102,3 +104,24 @@ details.held li { margin: 3px 0; }
 .sync { margin: 4px 0 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; }
 .sync .import { margin-top: 6px; }
 .ok { color: var(--ok); }
+
+/* ---- Already have (in the playlist) ---- */
+.badge.have { color: var(--have); border-color: currentColor; }
+.badge.have-duplicate { background: var(--have); color: var(--have-fg); border-color: var(--have); font-weight: 600; }
+.badge.have-other-version { border-style: dashed; }
+.have-text { color: var(--have); font-weight: 600; }
+.have-banner { margin: 6px 0 8px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--have); border-left-width: 5px; background: var(--have-bg); }
+.have-banner strong { color: var(--have); }
+.have-banner.have-other-version { border-style: dashed; border-left-style: solid; }
+.match.have-frame { border-color: var(--have); box-shadow: inset 4px 0 0 var(--have); background: var(--have-bg); }
+button.have-btn { border-color: var(--have); }
+button.have-btn:not(.secondary) { background: var(--have); color: var(--have-fg); }
+button.have-btn.secondary { color: var(--have); }
+button.have-btn.on { box-shadow: 0 0 0 2px var(--have); }
+table.queue tr.have-row td:first-child { box-shadow: inset 4px 0 0 var(--have); }
+table.queue td.marker { width: 28px; text-align: center; }
+ul.later { margin: 6px 0 0; padding-left: 18px; }
+ul.later li { margin: 3px 0; }
+ul.later li.have-row { list-style-type: '⊘ '; }
+ul.later li.have-row::marker { color: var(--have); }
+.legend { margin: -4px 0 6px; }

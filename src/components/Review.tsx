@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { displayTitle } from '../lib/anilist';
-import { saveSnapshot, SNAPSHOT_SOURCE, snapshotFromParse, type DecisionValue, type PlaylistSnapshot } from '../lib/db';
+import { saveSnapshot, SNAPSHOT_SOURCE, snapshotFromParse, type Decision, type DecisionValue, type PlaylistSnapshot } from '../lib/db';
 import { lookup, parseAppleMusicUrl, searchSongs, songUrl, type ItunesTrack } from '../lib/itunes';
 import { confidenceOf, rankTracks, type Flag, type MatchPrefs } from '../lib/matcher';
 import type { Candidate, MatchResult } from '../lib/matching';
@@ -39,10 +39,9 @@ const isTyping = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INP
 export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, playlistName, onSettings, onBack }: Props) {
   const [index, setIndex] = useState(0);
   const [onlyUndecided, setOnlyUndecided] = useState(false);
-  const [hideInPlaylist, setHideInPlaylist] = useState(false);
   const [showCandidates, setShowCandidates] = useState(false);
   const { matches, status, errors, choose, rematch } = useMatching(items, country, prefs, index);
-  const { decisions, decide } = useDecisions(useMemo(() => items.map((i) => i.key), [items]));
+  const { decisions, decide, setAddAnyway } = useDecisions(useMemo(() => items.map((i) => i.key), [items]));
   const audio = useRef<HTMLAudioElement>(null);
   const searchBox = useRef<HTMLInputElement>(null);
 
@@ -72,12 +71,13 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
     }
     return m;
   }, [playlist, added, addedIndex, items, matches, storeNames]);
-  const hidden = useCallback((i: number) => hideInPlaylist && inPlaylist.get(items[i]!.key)?.tier === 'duplicate', [hideInPlaylist, inPlaylist, items]);
-  const dupCount = useMemo(() => [...inPlaylist.values()].filter((x) => x.tier === 'duplicate').length, [inPlaylist]);
+  // Every song gets an explicit decision: songs already in the playlist are
+  // flagged (banner, colour, queue marker), never hidden or skipped for you.
+  const have = item ? inPlaylist.get(item.key) : undefined;
 
   const visibleIdx = useMemo(
-    () => items.map((_, i) => i).filter((i) => i === index || ((!onlyUndecided || !decisions.has(items[i]!.key)) && !hidden(i))),
-    [items, onlyUndecided, decisions, index, hidden],
+    () => items.map((_, i) => i).filter((i) => i === index || !onlyUndecided || !decisions.has(items[i]!.key)),
+    [items, onlyUndecided, decisions, index],
   );
   const step = useCallback((dir: 1 | -1) => {
     const pos = visibleIdx.indexOf(index);
@@ -86,16 +86,22 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
   }, [visibleIdx, index]);
   const nextUndecided = useCallback(() => {
     const order = [...items.keys()].slice(index + 1).concat([...items.keys()].slice(0, index));
-    const next = order.find((i) => !decisions.has(items[i]!.key) && i !== index && !hidden(i));
+    const next = order.find((i) => !decisions.has(items[i]!.key) && i !== index);
     setIndex(next ?? Math.min(items.length - 1, index + 1));
-  }, [items, index, decisions, hidden]);
+  }, [items, index, decisions]);
 
-  const doDecide = useCallback(async (d: DecisionValue) => {
+  const doDecide = useCallback(async (d: DecisionValue, addAnyway = false) => {
     if (!item) return;
     if (d === 'keep' && !match?.chosenId) return; // nothing to keep yet
-    await decide(item.key, d, d === 'keep' ? match?.chosenId ?? null : null);
+    await decide(item.key, d, d === 'keep' ? match?.chosenId ?? null : null, addAnyway);
     nextUndecided();
   }, [item, match, decide, nextUndecided]);
+  /** A: keep a song you already have and export it anyway; on an already-kept song, toggle the override in place. */
+  const addAnywayKey = useCallback(async () => {
+    if (!item || !have || have.sameTrack && have.source === 'added') return;
+    if (decision?.decision === 'keep') await setAddAnyway([item.key], !decision.addAnyway);
+    else await doDecide('keep', true);
+  }, [item, have, decision, setAddAnyway, doDecide]);
 
   // On open, jump to the first undecided song (once decisions have loaded).
   const landed = useRef(false);
@@ -122,6 +128,7 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
       if (k === 'k') doDecide('keep');
       else if (k === 's') doDecide('skip');
       else if (k === 'l') doDecide('later');
+      else if (k === 'a') addAnywayKey();
       else if (k === 'arrowright' || k === 'j') step(1);
       else if (k === 'arrowleft' || k === 'h') step(-1);
       else if (k === 'c') setShowCandidates((v) => !v);
@@ -134,7 +141,7 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [doDecide, step]);
+  }, [doDecide, step, addAnywayKey]);
 
   const counts = useMemo(() => {
     let keep = 0, skip = 0, later = 0;
@@ -155,11 +162,6 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
           {counts.pending > 0 && <span className="muted">· matching {counts.pending} more (~{Math.ceil(counts.pending * 1.7 * 3 / 60)} min)</span>}
           <span className="spacer" />
           <label><input type="checkbox" checked={onlyUndecided} onChange={(e) => setOnlyUndecided(e.target.checked)} /> Undecided only</label>
-          {(playlist || added.length > 0) && (
-            <label title="Same title and artist (±3 s) as a song in your synced playlist or the app's add log">
-              <input type="checkbox" checked={hideInPlaylist} onChange={(e) => setHideInPlaylist(e.target.checked)} /> Hide already in playlist ({dupCount})
-            </label>
-          )}
         </div>
 
         <div className="song-head">
@@ -171,10 +173,20 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
           <div>{item.theme.artists.join(', ') || <span className="muted">artist unknown</span>}</div>
         </div>
 
-        <MatchView item={item} match={match} chosen={chosen} status={status.get(item.key)} error={errors.get(item.key)} audioRef={audio} inPlaylist={inPlaylist.get(item.key)} />
+        {have && chosen && <HaveBanner hit={have} addAnyway={decision?.decision === 'keep' && !!decision.addAnyway} />}
+        <MatchView item={item} match={match} chosen={chosen} status={status.get(item.key)} error={errors.get(item.key)} audioRef={audio} inPlaylist={have} />
 
         <div className="row actions">
-          <button onClick={() => doDecide('keep')} disabled={!chosen} className={decision?.decision === 'keep' ? 'on' : ''}>Keep <kbd>K</kbd></button>
+          <button onClick={() => doDecide('keep')} disabled={!chosen} className={`${have ? 'have-btn' : ''} ${decision?.decision === 'keep' && !decision.addAnyway ? 'on' : ''}`}
+            title={have ? "Keep it, but hold it back from the export: it's already in your playlist" : undefined}>
+            {have ? 'Keep (held back)' : 'Keep'} <kbd>K</kbd>
+          </button>
+          {have && !(have.sameTrack && have.source === 'added') && (
+            <button className={`secondary have-btn ${decision?.decision === 'keep' && decision.addAnyway ? 'on' : ''}`} onClick={addAnywayKey} disabled={!chosen}
+              title="Keep and export it even though it looks like it's already in your playlist">
+              Keep &amp; add anyway <kbd>A</kbd>
+            </button>
+          )}
           <button className={`secondary ${decision?.decision === 'skip' ? 'on' : ''}`} onClick={() => doDecide('skip')}>Skip <kbd>S</kbd></button>
           <button className={`secondary ${decision?.decision === 'later' ? 'on' : ''}`} onClick={() => doDecide('later')}>Later <kbd>L</kbd></button>
           {decision && <button className="link" onClick={() => decide(item.key, null, null)}>undo</button>}
@@ -194,7 +206,7 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
         {match && match.method !== 'manual' && <button className="link" onClick={() => rematch(item)}>re-run search</button>}
 
         <p className="muted small">
-          <kbd>K</kbd> keep · <kbd>S</kbd> skip · <kbd>L</kbd> later · <kbd>←</kbd>/<kbd>→</kbd> move · <kbd>space</kbd> play/pause · <kbd>C</kbd> candidates · <kbd>/</kbd> search
+          <kbd>K</kbd> keep · <kbd>A</kbd> keep &amp; add anyway (songs you already have) · <kbd>S</kbd> skip · <kbd>L</kbd> later · <kbd>←</kbd>/<kbd>→</kbd> move · <kbd>space</kbd> play/pause · <kbd>C</kbd> candidates · <kbd>/</kbd> search
         </p>
         <div className="row small">
           <label>Store
@@ -209,7 +221,8 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
       </section>
 
       <Queue items={items} index={index} onPick={setIndex} matches={matches} status={status} decisions={decisions} inPlaylist={inPlaylist} />
-      <KeptSummary items={items} matches={matches} decisions={decisions} country={country} playlistName={playlistName} playlist={playlist} snapshot={snapshot} onSnapshot={onSnapshot} added={added} storeNames={storeNames} onRecord={record} onUndo={undoBatch} />
+      <KeptSummary items={items} matches={matches} decisions={decisions} country={country} playlistName={playlistName} playlist={playlist} snapshot={snapshot} onSnapshot={onSnapshot} added={added} storeNames={storeNames} onRecord={record} onUndo={undoBatch} onAddAnyway={setAddAnyway} />
+      <LaterList items={items} decisions={decisions} inPlaylist={inPlaylist} onPick={setIndex} />
     </>
   );
 }
@@ -228,7 +241,33 @@ function InPlaylistBadge({ hit }: { hit?: DupHit }) {
   const name = `${hit.row.title}${hit.row.artist ? ` — ${hit.row.artist}` : ''}`;
   const where = hit.source === 'added' ? `Added by the app: ${name}` : `Playlist #${hit.row.position}: ${name}`;
   const label = hit.source === 'added' && hit.tier !== 'other-version' ? 'already added' : TIER_LABEL[hit.tier];
-  return <span className={`badge ${hit.tier === 'duplicate' ? 'in-playlist' : 'warn'}`} title={`${where} (match ${Math.round(hit.score * 100)}%)`}>{label}</span>;
+  return <span className={`badge have have-${hit.tier}`} title={`${where} (match ${Math.round(hit.score * 100)}%)`}>{label}</span>;
+}
+
+const HAVE_HEADLINE: Record<DupHit['tier'], string> = {
+  duplicate: 'Already in your playlist',
+  'likely-duplicate': 'Probably already in your playlist',
+  'other-version': 'Another version is in your playlist',
+};
+
+/** Shown above the match on the review card for a song you (probably) already have. */
+function HaveBanner({ hit, addAnyway }: { hit: DupHit; addAnyway: boolean }) {
+  const name = `${hit.row.title}${hit.row.artist ? ` — ${hit.row.artist}` : ''}`;
+  const where = hit.source === 'added' ? `added by the app: ${name}` : `#${hit.row.position}: ${name}`;
+  const exact = hit.sameTrack && hit.source === 'added';
+  return (
+    <div className={`have-banner have-${hit.tier}`} role="status">
+      <strong>{hit.source === 'added' && hit.tier !== 'other-version' ? 'Already added by the app' : HAVE_HEADLINE[hit.tier]}</strong>
+      <span className="muted"> · matches {where}{exact ? '' : ` (${Math.round(hit.score * 100)}%)`}</span>
+      <div className="small">
+        {addAnyway
+          ? 'You chose to add it anyway: it will be exported.'
+          : exact
+            ? 'Keeping it holds it back from the export.'
+            : <>Keeping it holds it back from the export. Press <kbd>A</kbd> to keep it and add it anyway.</>}
+      </div>
+    </div>
+  );
 }
 
 function MatchView({ item, match, chosen, status, error, audioRef, inPlaylist }: {
@@ -242,7 +281,7 @@ function MatchView({ item, match, chosen, status, error, audioRef, inPlaylist }:
   const t = chosen.track;
   const conf = match.userPicked ? 'high' : confidenceOf(match.score);
   return (
-    <div className="match">
+    <div className={`match${inPlaylist ? ` have-frame have-${inPlaylist.tier}` : ''}`}>
       {t.artworkUrl100
         ? <img src={t.artworkUrl100.replace('100x100bb', '200x200bb')} alt="" width={88} height={88} onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
         : <div className="art" />}
@@ -327,23 +366,38 @@ function ManualSearch({ item, country, prefs, inputRef, onUse }: {
   );
 }
 
+/** Queue marker: what will happen to the song. */
+function marker(d: Decision | undefined, have: DupHit | undefined): { glyph: string; title: string; cls: string } {
+  if (!d) return { glyph: '', title: 'Not decided yet', cls: '' };
+  if (d.decision === 'skip') return { glyph: '✕', title: 'Skipped', cls: 'muted' };
+  if (d.decision === 'later') return { glyph: '…', title: 'Later', cls: 'muted' };
+  if (!have) return { glyph: '✓', title: 'Kept: will be exported', cls: 'ok' };
+  if (d.addAnyway) return { glyph: '✓+', title: 'Kept, add anyway: will be exported even though you seem to have it', cls: 'have-text' };
+  return { glyph: '⊘', title: "Kept, held back: it's already in your playlist", cls: 'have-text' };
+}
+
 function Queue({ items, index, onPick, matches, status, decisions, inPlaylist }: {
   items: ReviewItem[]; index: number; onPick: (i: number) => void;
-  matches: Map<string, MatchResult>; status: Map<string, string>; decisions: Map<string, { decision: DecisionValue }>; inPlaylist: Map<string, DupHit>;
+  matches: Map<string, MatchResult>; status: Map<string, string>; decisions: Map<string, Decision>; inPlaylist: Map<string, DupHit>;
 }) {
   return (
     <section className="card">
       <h2>Queue</h2>
+      <p className="muted small legend">
+        <span className="ok">✓</span> kept, will be exported · <span className="have-text">⊘</span> kept, held back (already have) ·{' '}
+        <span className="have-text">✓+</span> kept, add anyway · … later · ✕ skipped
+      </p>
       <table className="queue">
         <tbody>
           {items.map((it, i) => {
             const m = matches.get(it.key);
-            const d = decisions.get(it.key)?.decision;
+            const hit = inPlaylist.get(it.key);
+            const mk = marker(decisions.get(it.key), hit);
             const st = status.get(it.key);
             const conf = m?.userPicked ? 'high' : confidenceOf(m?.score ?? null);
             return (
-              <tr key={it.key} className={i === index ? 'current' : ''} onClick={() => onPick(i)}>
-                <td className="nowrap">{d === 'keep' ? '✓' : d === 'skip' ? '✕' : d === 'later' ? '…' : ''}</td>
+              <tr key={it.key} className={`${i === index ? 'current' : ''} ${hit ? 'have-row' : ''}`} onClick={() => onPick(i)}>
+                <td className={`nowrap marker ${mk.cls}`} title={mk.title}>{mk.glyph}</td>
                 <td className="nowrap muted">{it.theme.slug}</td>
                 <td>{it.theme.songTitle} <span className="muted">· {displayTitle(it.show)}</span><InPlaylistBadge hit={inPlaylist.get(it.key)} /></td>
                 <td className="nowrap">{st === 'done' || st === 'error' ? <span className={`badge conf-${conf}`}>{m?.userPicked ? 'your pick' : CONF_LABEL[conf]}</span> : <span className="muted">{st}</span>}</td>
@@ -377,13 +431,14 @@ function ago(ms: number, now = Date.now()): string {
   return `${Math.round(h / 24)} days ago`;
 }
 
-function KeptSummary({ items, matches, decisions, country, playlistName, playlist, snapshot, onSnapshot, added, storeNames, onRecord, onUndo }: {
-  items: ReviewItem[]; matches: Map<string, MatchResult>; decisions: Map<string, { decision: DecisionValue; trackId: number | null }>;
+function KeptSummary({ items, matches, decisions, country, playlistName, playlist, snapshot, onSnapshot, added, storeNames, onRecord, onUndo, onAddAnyway }: {
+  items: ReviewItem[]; matches: Map<string, MatchResult>; decisions: Map<string, Decision>; onAddAnyway: (keys: string[], value: boolean) => Promise<void>;
   country: string; playlistName: string; playlist: DupIndex | null; snapshot: PlaylistSnapshot | null; onSnapshot: (s: PlaylistSnapshot) => void;
   added: AddedRecord[]; storeNames: Map<number, StoreName>; onRecord: (items: ExportItem[]) => Promise<string>; onUndo: (batchId: string) => Promise<void>;
 }) {
   const [copied, setCopied] = useState(false);
-  const [overrides, setOverrides] = useState<Set<string>>(new Set());
+  // "Add anyway" lives on the decision, so the review card and this list agree and it survives reloads.
+  const overrides = useMemo(() => new Set([...decisions.values()].filter((d) => d.decision === 'keep' && d.addAnyway).map((d) => d.key)), [decisions]);
   const [lastBatch, setLastBatch] = useState<{ id: string; n: number } | null>(null);
   const [format, setFormatState] = useState<ExportFormat>(() => {
     try { const v = localStorage.getItem(EXPORT_KEY); return EXPORT_FORMATS.some((f) => f.value === v) ? (v as ExportFormat) : 'shortcut'; } catch { return 'shortcut'; }
@@ -405,7 +460,17 @@ function KeptSummary({ items, matches, decisions, country, playlistName, playlis
     }, storeNames.get(d.trackId))];
   }), [items, decisions, matches, country, storeNames]);
   const plan = useMemo(() => planExport(exportItems, { playlist, added, overrides }), [exportItems, playlist, added, overrides]);
-  if (!exportItems.length && !lastBatch) return null;
+  // Always offer Sync playlist, even before anything is kept: the review's
+  // "already in your playlist" flags need a synced copy to compare against.
+  if (!exportItems.length && !lastBatch) {
+    return (
+      <section className="card">
+        <h2>Kept</h2>
+        <PlaylistSync snapshot={snapshot} playlistName={playlistName} onSnapshot={onSnapshot} />
+        <p className="muted">Nothing kept yet. Sync your playlist first, so songs you already have are flagged while you review.</p>
+      </section>
+    );
+  }
 
   const output =
     format === 'shortcut' ? plan.add.map(shortcutLine).join('\n')
@@ -416,13 +481,14 @@ function KeptSummary({ items, matches, decisions, country, playlistName, playlis
   };
   const canShare = typeof navigator !== 'undefined' && 'share' in navigator && window.isSecureContext;
   const share = async () => { try { await navigator.share({ text: output }); } catch { /* cancelled */ } };
-  const toggle = (key: string) => setOverrides((o) => { const n = new Set(o); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  const toggle = (key: string) => onAddAnyway([key], !overrides.has(key));
   const markAdded = async () => {
     if (!plan.add.length) return;
     if (!confirm(`Record ${plan.add.length} song(s) as added to "${playlistName}"? They'll be held back from future exports.`)) return;
     const n = plan.add.length;
     const id = await onRecord(plan.add);
-    setOverrides(new Set());
+    // Recorded songs are now in the add log; clear their override so they can't re-export.
+    await onAddAnyway(plan.add.map((i) => i.key), false);
     setLastBatch({ id, n });
   };
 
@@ -469,7 +535,7 @@ function KeptSummary({ items, matches, decisions, country, playlistName, playlis
           <ul>
             {plan.held.map((h) => (
               <li key={h.item.key} data-reason={h.reason} data-tier={h.hit?.tier}>
-                <span className={`badge ${h.reason === 'likely-in-playlist' || h.reason === 'other-version' ? 'warn' : 'in-playlist'}`}>{REASON_LABEL[h.reason]}</span>{' '}
+                <span className={`badge have ${h.reason === 'likely-in-playlist' ? 'have-likely-duplicate' : h.reason === 'other-version' ? 'have-other-version' : h.reason === 'repeat-in-batch' ? '' : 'have-duplicate'}`}>{REASON_LABEL[h.reason]}</span>{' '}
                 <strong>{h.item.title}</strong> <span className="muted">— {h.item.artist} · {h.item.label} · matches {h.detail}</span>
                 {h.overridable && <label className="small"> <input type="checkbox" checked={overrides.has(h.item.key)} onChange={() => toggle(h.item.key)} /> add anyway</label>}
               </li>
@@ -477,6 +543,29 @@ function KeptSummary({ items, matches, decisions, country, playlistName, playlis
           </ul>
         </details>
       )}
+    </section>
+  );
+}
+
+/** Songs marked Later, with the same "already have" indicator; click to go back to one. */
+function LaterList({ items, decisions, inPlaylist, onPick }: {
+  items: ReviewItem[]; decisions: Map<string, Decision>; inPlaylist: Map<string, DupHit>; onPick: (i: number) => void;
+}) {
+  const later = items.flatMap((it, i) => (decisions.get(it.key)?.decision === 'later' ? [{ it, i }] : []));
+  if (!later.length) return null;
+  return (
+    <section className="card">
+      <h2>Later ({later.length})</h2>
+      <p className="muted small">Not exported until you decide. Click one to review it again.</p>
+      <ul className="later">
+        {later.map(({ it, i }) => (
+          <li key={it.key} className={inPlaylist.has(it.key) ? 'have-row' : ''}>
+            <button className="link" onClick={() => { onPick(i); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>{it.theme.songTitle ?? 'Unknown title'}</button>
+            <span className="muted"> · {displayTitle(it.show)} {it.theme.slug}</span>
+            <InPlaylistBadge hit={inPlaylist.get(it.key)} />
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
