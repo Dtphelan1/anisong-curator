@@ -1,5 +1,5 @@
 /**
- * Playlist import (SPEC §9.5/§9.6): parse what Music.app gives you.
+ * Playlist import (docs/SPEC.md: the Anisong Export Playlist contract and "Playlist snapshots"): parse what Music.app or the shortcut gives you.
  *
  * 1. **Export** — File → Library → Export Playlist… → Plain Text. Tab-separated
  *    with a header row (Name, Artist, Composer, Album, …, Time, …, Location).

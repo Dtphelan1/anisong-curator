@@ -65,7 +65,7 @@ export class CuratorDB extends Dexie {
   matches!: EntityTable<MatchResult, 'key'>;
   decisions!: EntityTable<Decision, 'key'>;
   playlistSnapshots!: EntityTable<PlaylistSnapshot, 'name'>;
-  /** Add log (SPEC §9.4): songs the user confirmed adding via the shortcut. */
+  /** Add log (docs/SPEC.md, "Duplicate prevention"): songs the user confirmed adding via the shortcut. */
   added!: EntityTable<AddedRecord & { id?: number }, 'id'>;
 
   constructor(name = 'anisong-curator') {

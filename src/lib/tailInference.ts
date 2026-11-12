@@ -1,5 +1,5 @@
 /**
- * V2 (SPEC §9.5): map the playlist tail onto shows and suggest the bound.
+ * V2 (docs/SPEC.md, "inferring the lower bound"): map the playlist tail onto shows and suggest the bound.
  * (The duplicate check, §9.4, lives in dedupe.ts.)
  *
  * Name-to-name matching only: playlist rows (title, artist, album) are scored

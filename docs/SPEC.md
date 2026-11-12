@@ -1,13 +1,16 @@
 # anisong-curator — Prototype Spec
 
-Status: draft v0.5 · Scope: single-user, single-page prototype
+Status: draft v0.6 · Scope: single-user, single-page prototype
 Decision log: v0.2 drops the Apple Developer Program requirement. Apple Music
 access goes through the keyless iTunes Search/Lookup APIs (read) and Apple
 Shortcuts (playlist read/write). The MusicKit path is kept as an upgrade (§10).
 v0.3 moves AnimeThemes from its deprecated REST API to GraphQL (§9.1).
 v0.4 records what M3's live evaluation established about iTunes (§9.2).
 v0.5 (M6) reads the playlist from a Music.app **export or pasted rows**
-instead of the "Read Tail" Shortcut (§9.5, §9.6).
+instead of the `Anisong Read Tail` shortcut (§9.5, §9.6).
+v0.6 makes duplicate prevention app-side only, with likelihood tiers instead
+of exact matching, fed by `Anisong Export Playlist` or a Mac export (§9.4,
+§9.6); `Anisong Add Kept` just adds links.
 
 ## 1. User story
 
@@ -110,7 +113,8 @@ Match      { songId, trackId, country, trackName, artistName, collectionName,
 Decision   { themeId, decision: 'keep'|'skip'|'later', decidedAt }
 CommitLog  { runId, trackIds[], target: 'staging'|'append', playlistName, at, confirmed }
 RunCursor  { lastProcessedEntries: {anilistId → updatedAt}, sortField, committedAt }
-PlaylistSnapshot { name, rows[{position, title, artist, album, durationMs}], importedAt }  // Dexie v3
+PlaylistSnapshot { name, rows[{position, title, artist, album, durationMs}], importedAt,
+                   format: 'export'|'pasted'|'shortcut', ordered, artistsKnown?, warnings[] }  // Dexie v3
 ```
 
 The **add log** (Dexie v4 `added`; the `CommitLog` above in the original design)
@@ -180,8 +184,13 @@ documented.
   ---durations---
   <one duration per line, same order; seconds or m:ss; optional>
   ```
-  The sections are parallel lists. If the title and artist counts differ, the
-  app warns and matches on titles only.
+  The sections are parallel lists. A blank line inside a section is an empty
+  value and must stay (dropping it would shift every later song); blank lines
+  at the end of a section are separators, except as many as a list needs to
+  line up with the others. Durations are seconds (fractions allowed), `m:ss`
+  or `h:mm:ss`. If the title and artist counts still differ, the app doesn't
+  zip them: it warns and matches that snapshot on titles only (durations
+  likewise).
 - **Constraints:** read-only, and no per-song loop (it must stay fast on a large
   playlist). Row order isn't guaranteed to be playlist order, so it's used for
   duplicate checks only. The "suggest last show" feature (§9.5) needs an
@@ -324,49 +333,65 @@ ISRC**.
 silently dropping one you meant to add. No API offers a duplicate prompt or
 lets us remove a track afterwards, so prevention has to happen before adding.
 
-**What counts as a duplicate.** The playlist only exposes names, not catalog
-IDs or ISRCs, so matching is by name:
+**App-side only.** The check runs in the app, against two sources:
+- **The playlist snapshot**, refreshed with **Sync playlist** in the Kept
+  section: paste the text `Anisong Export Playlist` copies (format: §6.2), or
+  import a Mac export (§9.5). The Kept section shows the snapshot's name, size,
+  age and source, and nudges you to sync when there's none or it's over 7 days
+  old.
+- **The add log.** When you press **I added these** after running
+  `Anisong Add Kept`, the exported batch is recorded (`trackId`, title, artist,
+  duration, batch, time; undoable). It covers what the app added since the
+  last sync, so a stale snapshot still catches the app's own additions.
 
-| Kind | Rule | Default |
+`Anisong Add Kept` is the simple shortcut (§6.1): it adds every link it's
+given. The earlier design's second layer, a diff inside the add shortcut, is
+dropped: it was slow and flaky on a large playlist, and could only compare
+exact text.
+
+**Likelihood, not equality.** The playlist exposes only names (no catalog
+IDs or ISRCs), and the same song is often named differently: 紅蓮華 vs
+"Gurenge", "Revenge of B" vs "B no Revenge", "SCANDAL (JP)" vs "SCANDAL". Each
+kept song is scored against the snapshot rows and the add log
+(`dedupe.ts`):
+- **Names on the song's side:** the catalog title and artist, plus the
+  theme's romaji/native titles and artists (AnimeThemes), plus the track's
+  name in the JP store (one batched iTunes lookup for the kept tracks, cached;
+  AnimeThemes often lacks the native title). A track titled as a cover
+  (`(From "…")`, karaoke) doesn't borrow the theme's original artists.
+- **Title similarity:** Dice on character bigrams of the core title (version
+  suffixes stripped), whitespace-insensitive so it works for CJK; the best over
+  all the song's titles.
+- **Artist similarity:** best over the song's artists × the row's artists
+  split on `&`, `,`, `feat.` …; one name inside the other counts 0.95. No
+  artist on a side (or a snapshot whose lists didn't line up) is *unknown*,
+  not a mismatch.
+- **Duration:** within ±3 s supports "same recording"; ≥ 20 s apart, or a
+  TV size / live / remix / acoustic / instrumental flag on one side only,
+  means another cut.
+
+| Tier | Rule | Default |
 |---|---|---|
-| **Repeat in batch** | Same `trackId`, or same normalized title + artist, twice in one export (e.g. one song used by two shows) | Drop the extras, always |
-| **Already added** | In the app's add log (below), by `trackId` or title + artist | Hold back, can override |
-| **In playlist** | Same normalized title + artist as a playlist-snapshot row, duration within ±3 s (or unknown) | Hold back, can override |
-| **Other version** | Same core title (version suffixes stripped) + artist, different duration: TV size vs full, a remaster | Hold back, can override |
+| **Repeat in batch** | Same `trackId`, or same normalized title + artist, twice in one export (one song used by two shows) | Drop the extras, always |
+| **Duplicate** (already in playlist / already added) | Title ≥ 0.9, artist ≥ 0.8, duration ±3 s or unknown; or the same `trackId` in the add log | Hold back, can override |
+| **Likely duplicate** | Title ≥ 0.75 and artist ≥ 0.6 but not a duplicate (e.g. 3–20 s apart); or title ≥ 0.9 with unknown artist and nothing contradicting | Hold back, can override |
+| **Other version** | Title ≥ 0.8, artist ≥ 0.6, another cut (above) | Hold back, can override |
+| No match | Title < 0.75, or artist < 0.6 (a cover, or an unrelated song with the same title: "Again" by someone else) | Exported |
 
-"Hold back" means the song stays out of the export, listed with its reason
-and an **add anyway** checkbox.
+Thresholds are tuned on real AnimeThemes and iTunes names in
+`dedupe.test.ts`. When both sources match, the stronger tier wins (the add log
+on ties). Rows are indexed by title bigrams, so a 2,000-row playlist × 50 kept
+songs takes tens of milliseconds.
 
-**Layer 1: the app (primary).** It knows the most.
-- *Sources:* the imported playlist snapshot (§9.6), plus an **add log**: when
-  you press **"I added these"** after running the shortcut, the exported batch
-  is recorded (`trackId`, title, artist, duration, batch, time). The log
-  covers what the app added since the last export, so you don't need to
-  re-import after every session.
-- *Review:* songs already in the snapshot or the log get an "already in
-  playlist" or "other version in playlist" badge, and can be hidden.
-- *Export:* the Kept section splits into **To add** and **Held back (reason)**.
-  Only **To add** is copied.
+**In the UI.** Review badges use the same scoring: "already in playlist",
+"likely in playlist", "other version in playlist" (exact duplicates can be
+hidden). The Kept section splits into **To add** and **Held back**: each held
+song shows its reason, the matched row, the tier and the score, with
+**add anyway**. Only **To add** is copied.
 
-**Layer 2: the shortcut (safety net).** It catches anything added outside the
-app since the last export. The export's **Shortcut** format puts one song per
-line, as `Title | Artist | https://music.apple.com/…`. The shortcut:
-1. Reads the target playlist's songs (**Find Music** where Playlist is the
-   target) and builds `name | artist` lines, lowercased.
-2. For each input line, builds the same `title | artist` key, lowercased.
-3. Skips the song if the key is already present, otherwise collects its URL.
-4. Adds the collected URLs, or creates a staging playlist, and reports
-   "added N, skipped M".
-
-Title + artist names in the library match the catalog's names in the user's
-storefront, which are what the app exports. A song you added from a
-*different* storefront could slip past, and Layer 1's title + artist
-normalization is more forgiving than the shortcut's exact-text check. That's
-why Layer 1 is primary.
-
-**Open:** does the Shortcuts **Add to Playlist** action already skip songs
-that are in the playlist? (The Music app asks; Shortcuts may add silently.)
-Layer 2 is needed either way, because a silent duplicate can't be undone from
+**Open:** does the Shortcuts **Add to Playlist** action skip songs already in
+the playlist? (The Music app asks; Shortcuts may add silently.) Either way the
+app must catch them first, because a silent duplicate can't be undone from
 Shortcuts.
 
 ### 9.5 V2: inferring the lower bound from the playlist tail
@@ -375,7 +400,14 @@ Shortcuts.
    endings, `Time` in seconds; columns found by header name), or ⌘C rows
    pasted from the song list (no header; Name / m:ss Time / Artist / Album are
    guessed and shown for checking). It is saved as a `PlaylistSnapshot`, and
-   the last n = 30 rows are the tail. This replaces the "Read Tail" Shortcut
+   the last n = 30 rows are the tail. **Only an ordered snapshot has a
+   tail.** Music.app exports (and copies) rows in the window's current sort,
+   not playlist order: if ≥ 90% of the adjacent pairs that differ run one way
+   by Name, Artist or Album, the snapshot is marked `ordered: false` and the
+   app asks for an export with View → Sort By → Playlist Order. Text from
+   `Anisong Export Playlist` is always `ordered: false` (§6.2). An unordered
+   snapshot still feeds the duplicate check, but no bound is suggested from
+   it. This replaces the `Anisong Read Tail` shortcut
    for reading: no x-callback round trip, and the whole playlist arrives at
    once. Parser: `playlistImport.ts`; inference: `tailInference.ts`.
 2. Build an index of normalized `title|artist` keys from the themes of every
@@ -402,10 +434,18 @@ Once saved state (§7) exists, V2 becomes a drift check: does the tail match
 the CommitLog?
 
 ### 9.6 Other
-- **Full playlist import (M6).** The Music.app export (§9.5) holds the whole
-  playlist, so it also seeds the §9.4 snapshot check: Review shows an
-  "already in playlist" badge (title + artist, ±3 s) and can hide those
-  songs. Re-import whenever the playlist changes by hand.
+- **Playlist snapshots.** Three sources feed the one snapshot (§5.1), each
+  holding the whole playlist for the §9.4 check:
+  - **Mac export** (§9.5): ordered unless the window was sorted by a column;
+    the only source for "suggest last show".
+  - **`Anisong Export Playlist`** text (§6.2), pasted into **Sync playlist**
+    on any device: `ordered: false`, because the order **Find Music** returns
+    is unverified. If its lists don't line up, artists (or durations) are
+    dropped for that snapshot (`artistsKnown: false`) rather than zipped.
+  - **⌘C rows** pasted from Music: columns guessed.
+
+  Saving replaces the snapshot with the same name. Sync before exporting
+  whenever the playlist changed outside the app.
 - **x-callback length.** The result goes into a URL. Keep tail reads small
   (n ≤ ~100) and use the clipboard for anything larger.
 - **Playlist names aren't unique.** The Shortcut picks the first match. Tell
