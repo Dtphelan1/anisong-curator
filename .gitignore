@@ -4,3 +4,4 @@ dist/
 *.p8
 *.token
 .DS_Store
+.claude/worktrees/
