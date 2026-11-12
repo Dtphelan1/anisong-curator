@@ -12,9 +12,11 @@ interface Props {
   onIncludeInserts: (v: boolean) => void;
   onBack: () => void;
   onRetry: () => void;
+  onReview: () => void;
+  reviewCount: number;
 }
 
-export function ThemeList({ candidates, lookups, errors, progress, includeInserts, onIncludeInserts, onBack, onRetry }: Props) {
+export function ThemeList({ candidates, lookups, errors, progress, includeInserts, onIncludeInserts, onBack, onRetry, onReview, reviewCount }: Props) {
   const running = progress !== null && progress.phase !== 'done';
   const visible = (l?: ThemeLookup) => sortThemes(l?.themes ?? []).filter((t) => includeInserts || t.kind !== 'IN');
   const songCount = candidates.reduce((n, c) => n + visible(lookups.get(c.show.anilistId)).length, 0);
@@ -30,11 +32,13 @@ export function ThemeList({ candidates, lookups, errors, progress, includeInsert
         {running
           ? <span className="muted">Looking up songs… {progress.done}/{progress.total} ({progress.phase})</span>
           : <span><strong>{songCount}</strong> songs from <strong>{covered}</strong>/{candidates.length} shows</span>}
+        <span className="spacer" />
+        <button onClick={onReview} disabled={running || !reviewCount}>Match &amp; review {reviewCount} songs →</button>
       </div>
       {errors.size > 0 && (
         <p className="bad">{errors.size} show(s) failed to load: {[...new Set(errors.values())][0]}. They weren't cached and will be retried.</p>
       )}
-      <p className="muted">Next milestone (M3): match each song in the Apple Music catalog and review with previews.</p>
+      <p className="muted">Songs shared by several shows are reviewed once.</p>
 
       {candidates.map(({ show }) => {
         const l = lookups.get(show.anilistId);

@@ -1,10 +1,11 @@
 # anisong-curator — Prototype Spec
 
-Status: draft v0.3 · Scope: single-user, single-page prototype
+Status: draft v0.4 · Scope: single-user, single-page prototype
 Decision log: v0.2 drops the Apple Developer Program requirement. Apple Music
 access goes through the keyless iTunes Search/Lookup APIs (read) and Apple
 Shortcuts (playlist read/write). The MusicKit path is kept as an upgrade (§10).
 v0.3 moves AnimeThemes from its deprecated REST API to GraphQL (§9.1).
+v0.4 records what M3's live evaluation established about iTunes (§9.2).
 
 ## 1. User story
 
@@ -266,6 +267,29 @@ ISRC**.
   again.
 - **Pasting a URL** (§5.2 step 6) is the exact override.
 
+**Verified in M3 (live evaluation, 22 themes, US store):**
+- iTunes sends `access-control-allow-origin: *`, so plain `fetch` works.
+  `trackViewUrl` is `music.apple.com/...?i=<trackId>`, so `trackId` is the
+  Apple Music song id.
+- **Track ids are global across storefronts; only names are localized.** JP
+  returns native script, while the US may romanize or *translate*:
+  "B no Revenge" → "Revenge of B", and "Golden Time Lover" → "Golden Time
+  Rubber" (sic). JP-store hits are therefore looked up in the user's store
+  (one batched Lookup) and scored on **both** names. Flags are the union, so
+  a cover can't hide behind a storefront whose name omits "(From …)".
+- Cover factories title tracks `X (From "Anime")`. Official releases don't,
+  so that pattern is flagged as a cover. Soundtrack albums are penalized
+  because they often hold same-named composer tracks.
+- The search stops only on a confident match: score ≥ 0.8, or ≥ 0.55 with
+  an artist match. A strong title with the wrong artist is usually a cover,
+  so the search keeps looking for the original.
+- Result: 20/22 correct top picks. The 2 doubtful ones are marked
+  "check me", none are auto-accepted wrong, and no covers win. That took
+  37 requests for 22 themes (~1.7 each, <2 min at 20/min).
+- AnimeThemes `APPLE_MUSIC` song links cover ~1–10% of songs, as
+  `/jp/song/{id}` or `/jp/album/{id}`. All of them resolve in ONE Lookup
+  call (albums expand to tracks) before any search runs.
+
 ### 9.3 iTunes Search API quirks
 - **CORS.** Historically it allows browser `fetch`, but this has been
   inconsistent. It does support **JSONP** (`callback=`). `catalog.ts` uses a
@@ -346,10 +370,9 @@ Network probes weren't possible while this spec was written. In priority order:
    (title, artist, album, duration) can be read.
 3. **x-callback round trip**: `x-success` with `result` back to
    `localhost:5173/bridge`, in your browser of choice.
-4. **iTunes Search** from the browser: CORS vs JSONP, the real throttle, and
-   whether `trackId` equals the Apple Music catalog song ID (open
-   `music.apple.com/us/song/{trackId}`).
-5. **Cross-storefront IDs**: a `country=jp` hit looked up with `country=us`.
+4. ~~**iTunes Search** from the browser: CORS, `trackId` = Apple Music ID.~~
+   Resolved (§9.2). Still open: the real throttle limit.
+5. ~~**Cross-storefront IDs**~~. Resolved: ids are global (§9.2).
 6. ~~**AnimeThemes**: lookup by AniList external ID, batching, CORS.~~
    Resolved: GraphQL `findAnimeByExternalSite`, batched, CORS OK (§9.1).
 7. AniList's current rate limit (the `X-RateLimit-Limit` header).
@@ -361,7 +384,7 @@ Network probes weren't possible while this spec was written. In priority order:
 | M0 | Spikes 1–4 (one HTML page + two hand-built Shortcuts) | The keyless loop is feasible |
 | M1 ✅ | AniList load + ordering UI + lower-bound picker | §8 rules |
 | M2 ✅ | Theme resolution + cache | Coverage on *your* list (log hit rate) |
-| M3 | iTunes matcher + review UI with previews + URL paste | Match precision within the 20/min budget |
+| M3 ✅ | iTunes matcher + review UI with previews + URL paste | Match precision within the 20/min budget |
 | M4 | Shortcuts bridge: staging playlist, verify via Read Tail | End-to-end Mode 1 |
 | M5 | Decisions + CommitLog + cursor (§7), dedupe | Periodic use without re-picking |
 | M6 | V2 tail inference | First-run bootstrap / drift detection |

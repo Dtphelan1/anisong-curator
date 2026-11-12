@@ -1,6 +1,16 @@
 import Dexie, { type EntityTable } from 'dexie';
 import type { Show, ThemeLookup } from '../types';
 import type { ThemeCache } from './themes';
+import type { MatchResult } from './matching';
+
+export type DecisionValue = 'keep' | 'skip' | 'later';
+export interface Decision {
+  key: string;
+  decision: DecisionValue;
+  /** Chosen Apple Music track when kept. */
+  trackId: number | null;
+  decidedAt: number;
+}
 
 /**
  * IndexedDB via Dexie. Everything here is a rebuildable cache, except
@@ -10,6 +20,8 @@ export class CuratorDB extends Dexie {
   shows!: EntityTable<Show, 'anilistId'>;
   themeLookups!: EntityTable<ThemeLookup, 'anilistId'>;
   meta!: EntityTable<{ key: string; value: unknown }, 'key'>;
+  matches!: EntityTable<MatchResult, 'key'>;
+  decisions!: EntityTable<Decision, 'key'>;
 
   constructor(name = 'anisong-curator') {
     super(name);
@@ -17,6 +29,11 @@ export class CuratorDB extends Dexie {
       shows: 'anilistId, status',
       themeLookups: 'anilistId, status, fetchedAt',
       meta: 'key',
+    });
+    // v2 (M3): Apple catalog matches and keep/skip decisions, keyed by themeKey().
+    this.version(2).stores({
+      matches: 'key, country, matchedAt',
+      decisions: 'key, decision, decidedAt',
     });
   }
 }

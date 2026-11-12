@@ -13,6 +13,10 @@ export interface Settings {
   /** "Last show already in the playlist" (Mode 1 lower bound). */
   boundId: number | null;
   includeInserts: boolean;
+  /** Apple Music storefront (ISO country code). */
+  country: string;
+  preferTvSize: boolean;
+  autoplay: boolean;
 }
 
 const KEY = 'anisong-curator.settings.v1';
@@ -24,6 +28,9 @@ export const DEFAULT_SETTINGS: Settings = {
   order: DEFAULT_ORDER,
   boundId: null,
   includeInserts: false,
+  country: 'us',
+  preferTvSize: false,
+  autoplay: true,
 };
 
 function read(): Settings {

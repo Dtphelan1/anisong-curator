@@ -7,8 +7,11 @@ import { useSettings } from './lib/settings';
 import { resolveThemes, type ResolveProgress } from './lib/themes';
 import { ShowPicker } from './components/ShowPicker';
 import { ThemeList } from './components/ThemeList';
+import { Review } from './components/Review';
+import { buildReviewItems } from './lib/useMatching';
+import { sortThemes } from './lib/themes';
 
-type Step = 'pick' | 'themes';
+type Step = 'pick' | 'themes' | 'review';
 
 export function App() {
   const [settings, update] = useSettings();
@@ -37,6 +40,13 @@ export function App() {
     () => candidatesAfterBound(ordered, settings.boundId, settings.order.direction),
     [ordered, settings.boundId, settings.order.direction],
   );
+
+  const reviewItems = useMemo(
+    () => buildReviewItems(candidates.map((c) => c.show), (s) =>
+      sortThemes(lookups.get(s.anilistId)?.themes ?? []).filter((t) => settings.includeInserts || t.kind !== 'IN')),
+    [candidates, lookups, settings.includeInserts],
+  );
+  const prefs = useMemo(() => ({ preferTvSize: settings.preferTvSize }), [settings.preferTvSize]);
 
   async function loadList() {
     if (!settings.userName.trim()) { setError('Enter your AniList username.'); return; }
@@ -115,6 +125,19 @@ export function App() {
           onIncludeInserts={(includeInserts) => update({ includeInserts })}
           onBack={() => setStep('pick')}
           onRetry={() => findThemes(true)}
+          onReview={() => setStep('review')}
+          reviewCount={reviewItems.length}
+        />
+      )}
+
+      {step === 'review' && (
+        <Review
+          items={reviewItems}
+          country={settings.country}
+          prefs={prefs}
+          autoplay={settings.autoplay}
+          onSettings={update}
+          onBack={() => setStep('themes')}
         />
       )}
     </div>

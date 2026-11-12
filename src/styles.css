@@ -44,3 +44,32 @@ table.themes { table-layout: fixed; }
 table.themes td:nth-child(1) { width: 48px; }
 table.themes td:nth-child(2) { width: 42%; }
 table.themes td:nth-child(4) { width: 22%; }
+
+/* ---- Review (M3) ---- */
+.spacer { flex: 1; }
+.small { font-size: 12px; }
+kbd { font: 11px ui-monospace, monospace; padding: 0 4px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; color: var(--muted); background: var(--bg); }
+button kbd { border-color: currentColor; color: inherit; background: transparent; opacity: 0.8; }
+button.link { background: none; border: 0; color: var(--accent); padding: 0 4px; text-decoration: underline; }
+button.on { box-shadow: 0 0 0 2px var(--accent); }
+.song-head { margin: 10px 0 8px; }
+.song-title { font-size: 20px; margin: 2px 0; }
+.match { display: flex; gap: 12px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); min-height: 108px; align-items: flex-start; }
+.match.pending, .match.none { align-items: center; color: var(--muted); }
+.match img, .match .art { border-radius: 6px; flex: none; background: var(--line); width: 88px; height: 88px; }
+.match-body { min-width: 0; flex: 1; }
+.match audio { height: 32px; width: 260px; max-width: 100%; }
+.actions { margin-top: 10px; }
+.badge.conf-high { color: var(--ok); border-color: currentColor; }
+.badge.conf-check { color: var(--warn); border-color: currentColor; }
+.badge.conf-low, .badge.conf-none { color: var(--bad); border-color: currentColor; }
+details { margin-top: 10px; }
+table.cands audio { height: 28px; width: 160px; }
+table.cands td { vertical-align: middle; }
+.manual { margin-top: 10px; }
+.manual input { flex: 1; min-width: 200px; }
+table.queue tr { cursor: pointer; }
+table.queue tr.current { background: var(--bound); }
+ol.kept { margin: 8px 0 0; padding-left: 22px; }
+ol.kept li { margin: 2px 0; }
+@media (max-width: 600px) { .match { flex-direction: column; } .match audio { width: 100%; } }

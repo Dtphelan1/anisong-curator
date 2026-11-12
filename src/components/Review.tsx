@@ -1,0 +1,344 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { displayTitle } from '../lib/anilist';
+import type { DecisionValue } from '../lib/db';
+import { lookup, parseAppleMusicUrl, searchSongs, songUrl, type ItunesTrack } from '../lib/itunes';
+import { confidenceOf, rankTracks, type Flag, type MatchPrefs } from '../lib/matcher';
+import type { Candidate, MatchResult } from '../lib/matching';
+import { useDecisions, useMatching, type ReviewItem } from '../lib/useMatching';
+
+interface Props {
+  items: ReviewItem[];
+  country: string;
+  prefs: MatchPrefs;
+  autoplay: boolean;
+  onSettings: (patch: { country?: string; preferTvSize?: boolean; autoplay?: boolean }) => void;
+  onBack: () => void;
+}
+
+const FLAG_LABEL: Record<Flag, string> = {
+  tv: 'TV size', instrumental: 'instrumental', karaoke: 'karaoke', live: 'live', firstTake: 'THE FIRST TAKE',
+  remix: 'remix', acoustic: 'acoustic', cover: 'cover?', altVersion: 'alt version', soundtrack: 'soundtrack album',
+};
+const STOREFRONTS = ['us', 'ca', 'gb', 'au', 'jp', 'de', 'fr', 'es', 'it', 'nl', 'se', 'br', 'mx', 'kr', 'tw', 'hk', 'sg', 'ph', 'in'];
+const CONF_LABEL = { high: 'confident', check: 'check me', low: 'unlikely', none: 'no match' } as const;
+const mmss = (ms: number | null) => (ms ? `${Math.floor(ms / 60000)}:${String(Math.round(ms / 1000) % 60).padStart(2, '0')}` : '');
+const isTyping = (e: KeyboardEvent) => e.target instanceof HTMLElement && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName);
+
+export function Review({ items, country, prefs, autoplay, onSettings, onBack }: Props) {
+  const [index, setIndex] = useState(0);
+  const [onlyUndecided, setOnlyUndecided] = useState(false);
+  const [showCandidates, setShowCandidates] = useState(false);
+  const { matches, status, errors, choose, rematch } = useMatching(items, country, prefs, index);
+  const { decisions, decide } = useDecisions(useMemo(() => items.map((i) => i.key), [items]));
+  const audio = useRef<HTMLAudioElement>(null);
+  const searchBox = useRef<HTMLInputElement>(null);
+
+  const item = items[index];
+  const match = item ? matches.get(item.key) : undefined;
+  const chosen = match?.candidates.find((c) => c.track.trackId === match.chosenId);
+  const decision = item ? decisions.get(item.key) : undefined;
+
+  const visibleIdx = useMemo(
+    () => items.map((_, i) => i).filter((i) => !onlyUndecided || !decisions.has(items[i]!.key) || i === index),
+    [items, onlyUndecided, decisions, index],
+  );
+  const step = useCallback((dir: 1 | -1) => {
+    const pos = visibleIdx.indexOf(index);
+    const next = visibleIdx[Math.min(visibleIdx.length - 1, Math.max(0, pos + dir))];
+    if (next !== undefined) setIndex(next);
+  }, [visibleIdx, index]);
+  const nextUndecided = useCallback(() => {
+    const order = [...items.keys()].slice(index + 1).concat([...items.keys()].slice(0, index));
+    const next = order.find((i) => !decisions.has(items[i]!.key) && i !== index);
+    setIndex(next ?? Math.min(items.length - 1, index + 1));
+  }, [items, index, decisions]);
+
+  const doDecide = useCallback(async (d: DecisionValue) => {
+    if (!item) return;
+    if (d === 'keep' && !match?.chosenId) return; // nothing to keep yet
+    await decide(item.key, d, d === 'keep' ? match?.chosenId ?? null : null);
+    nextUndecided();
+  }, [item, match, decide, nextUndecided]);
+
+  // On open, jump to the first undecided song (once decisions have loaded).
+  const landed = useRef(false);
+  useEffect(() => {
+    if (landed.current || !decisions.size) return;
+    landed.current = true;
+    const first = items.findIndex((i) => !decisions.has(i.key));
+    if (first > 0) setIndex(first);
+  }, [decisions, items]);
+
+  // Reset per-item UI; autoplay the preview.
+  useEffect(() => { setShowCandidates(false); }, [index]);
+  useEffect(() => {
+    const el = audio.current;
+    if (!el || !chosen?.track.previewUrl) return;
+    el.src = chosen.track.previewUrl;
+    if (autoplay) el.play().catch(() => { /* blocked until first interaction */ });
+  }, [chosen?.track.previewUrl, autoplay]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (isTyping(e) || e.metaKey || e.ctrlKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === 'k') doDecide('keep');
+      else if (k === 's') doDecide('skip');
+      else if (k === 'l') doDecide('later');
+      else if (k === 'arrowright' || k === 'j') step(1);
+      else if (k === 'arrowleft' || k === 'h') step(-1);
+      else if (k === 'c') setShowCandidates((v) => !v);
+      else if (k === '/') { e.preventDefault(); searchBox.current?.focus(); }
+      else if (k === ' ') {
+        e.preventDefault();
+        const el = audio.current;
+        if (el) (el.paused ? el.play() : (el.pause(), Promise.resolve())).catch(() => {});
+      } else return;
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [doDecide, step]);
+
+  const counts = useMemo(() => {
+    let keep = 0, skip = 0, later = 0;
+    for (const d of decisions.values()) d.decision === 'keep' ? keep++ : d.decision === 'skip' ? skip++ : later++;
+    const pending = items.filter((i) => status.get(i.key) !== 'done' && status.get(i.key) !== 'error').length;
+    return { keep, skip, later, pending };
+  }, [decisions, items, status]);
+
+  if (!item) return <section className="card"><p>No songs to review.</p><button className="secondary" onClick={onBack}>← Back</button></section>;
+
+  return (
+    <>
+      <section className="card review">
+        <div className="row">
+          <button className="secondary" onClick={onBack}>← Songs</button>
+          <strong>{index + 1}/{items.length}</strong>
+          <span className="muted">kept {counts.keep} · skipped {counts.skip} · later {counts.later}</span>
+          {counts.pending > 0 && <span className="muted">· matching {counts.pending} more (~{Math.ceil(counts.pending * 1.7 * 3 / 60)} min)</span>}
+          <span className="spacer" />
+          <label><input type="checkbox" checked={onlyUndecided} onChange={(e) => setOnlyUndecided(e.target.checked)} /> Undecided only</label>
+        </div>
+
+        <div className="song-head">
+          <div className="muted">{displayTitle(item.show)} · <strong>{item.theme.slug}</strong>{item.theme.episodes && ` · eps ${item.theme.episodes}`}</div>
+          <h2 className="song-title">
+            {item.theme.songTitle ?? 'Unknown title'}
+            {item.theme.songTitleNative && <span className="muted"> · {item.theme.songTitleNative}</span>}
+          </h2>
+          <div>{item.theme.artists.join(', ') || <span className="muted">artist unknown</span>}</div>
+        </div>
+
+        <MatchView item={item} match={match} chosen={chosen} status={status.get(item.key)} error={errors.get(item.key)} audioRef={audio} />
+
+        <div className="row actions">
+          <button onClick={() => doDecide('keep')} disabled={!chosen} className={decision?.decision === 'keep' ? 'on' : ''}>Keep <kbd>K</kbd></button>
+          <button className={`secondary ${decision?.decision === 'skip' ? 'on' : ''}`} onClick={() => doDecide('skip')}>Skip <kbd>S</kbd></button>
+          <button className={`secondary ${decision?.decision === 'later' ? 'on' : ''}`} onClick={() => doDecide('later')}>Later <kbd>L</kbd></button>
+          {decision && <button className="link" onClick={() => decide(item.key, null, null)}>undo</button>}
+          <span className="spacer" />
+          <button className="secondary" onClick={() => step(-1)}>← <kbd>←</kbd></button>
+          <button className="secondary" onClick={() => step(1)}><kbd>→</kbd> →</button>
+        </div>
+
+        {match && match.candidates.length > 1 && (
+          <details open={showCandidates} onToggle={(e) => setShowCandidates((e.target as HTMLDetailsElement).open)}>
+            <summary>Other candidates ({match.candidates.length - 1}) <kbd>C</kbd></summary>
+            <CandidateList candidates={match.candidates.filter((c) => c.track.trackId !== match.chosenId)} onUse={(t) => choose(item, t)} />
+          </details>
+        )}
+
+        <ManualSearch key={item.key} item={item} country={country} prefs={prefs} inputRef={searchBox} onUse={(t) => choose(item, t)} />
+        {match && match.method !== 'manual' && <button className="link" onClick={() => rematch(item)}>re-run search</button>}
+
+        <p className="muted small">
+          <kbd>K</kbd> keep · <kbd>S</kbd> skip · <kbd>L</kbd> later · <kbd>←</kbd>/<kbd>→</kbd> move · <kbd>space</kbd> play/pause · <kbd>C</kbd> candidates · <kbd>/</kbd> search
+        </p>
+        <div className="row small">
+          <label>Store
+            <select value={country} onChange={(e) => onSettings({ country: e.target.value })} title="Apple Music storefront: matches are re-run for a new store">
+              {[...new Set([country, ...STOREFRONTS])].map((c) => <option key={c} value={c}>{c.toUpperCase()}</option>)}
+            </select>
+          </label>
+          <label><input type="checkbox" checked={prefs.preferTvSize} onChange={(e) => onSettings({ preferTvSize: e.target.checked })} /> Prefer TV size</label>
+          <label><input type="checkbox" checked={autoplay} onChange={(e) => onSettings({ autoplay: e.target.checked })} /> Autoplay previews</label>
+        </div>
+      </section>
+
+      <Queue items={items} index={index} onPick={setIndex} matches={matches} status={status} decisions={decisions} />
+      <KeptSummary items={items} matches={matches} decisions={decisions} country={country} />
+    </>
+  );
+}
+
+function Flags({ c, theme }: { c: Candidate; theme: ReviewItem['theme'] }) {
+  return (
+    <>
+      {c.flags.map((f) => <span key={f} className={`badge ${f === 'cover' || f === 'karaoke' || f === 'instrumental' ? 'bad' : 'warn'}`}>{FLAG_LABEL[f]}</span>)}
+      {theme.artists.length > 0 && c.artistSim < 0.6 && !c.flags.includes('cover') && <span className="badge warn" title="Artist differs from AnimeThemes; could be a cover, or a localized/alias name">different artist</span>}
+    </>
+  );
+}
+
+function MatchView({ item, match, chosen, status, error, audioRef }: {
+  item: ReviewItem; match?: MatchResult; chosen?: Candidate; status?: string; error?: string; audioRef: React.RefObject<HTMLAudioElement>;
+}) {
+  if (!match || status === 'matching' || status === 'queued') {
+    return <div className="match pending">{status === 'matching' ? 'Searching Apple Music…' : 'Queued for matching…'}<audio ref={audioRef} /></div>;
+  }
+  if (status === 'error') return <div className="match none"><span className="bad">Search failed: {error}</span><audio ref={audioRef} /></div>;
+  if (!chosen) return <div className="match none">No match in this store. Search or paste an Apple Music link below.<audio ref={audioRef} /></div>;
+  const t = chosen.track;
+  const conf = match.userPicked ? 'high' : confidenceOf(match.score);
+  return (
+    <div className="match">
+      {t.artworkUrl100
+        ? <img src={t.artworkUrl100.replace('100x100bb', '200x200bb')} alt="" width={88} height={88} onError={(e) => { e.currentTarget.style.visibility = 'hidden'; }} />
+        : <div className="art" />}
+      <div className="match-body">
+        <div>
+          <strong>{t.trackName}</strong>
+          <span className={`badge conf-${conf}`}>{match.userPicked ? 'your pick' : CONF_LABEL[conf]}</span>
+          {match.method === 'animethemes-link' && <span className="badge" title="Linked on AnimeThemes; no search needed">linked</span>}
+          <Flags c={chosen} theme={item.theme} />
+        </div>
+        <div>{t.artistName}</div>
+        <div className="muted">{t.collectionName} · {mmss(t.trackTimeMillis)}</div>
+        <div className="row">
+          <audio ref={audioRef} controls preload="none" />
+          <a href={songUrl(t.trackId, t.country)} target="_blank" rel="noopener noreferrer">Open in Apple Music ↗</a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CandidateList({ candidates, onUse }: { candidates: Candidate[]; onUse: (t: ItunesTrack) => void }) {
+  return (
+    <table className="cands">
+      <tbody>
+        {candidates.map((c) => (
+          <tr key={c.track.trackId}>
+            <td className="nowrap muted">{Math.round(c.score * 100)}</td>
+            <td><strong>{c.track.trackName}</strong><br /><span className="muted">{c.track.artistName} · {c.track.collectionName} · {mmss(c.track.trackTimeMillis)}</span> {c.flags.map((f) => <span key={f} className="badge warn">{FLAG_LABEL[f]}</span>)}</td>
+            <td>{c.track.previewUrl && <audio controls preload="none" src={c.track.previewUrl} />}</td>
+            <td><button className="secondary" onClick={() => onUse(c.track)}>Use</button></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function ManualSearch({ item, country, prefs, inputRef, onUse }: {
+  item: ReviewItem; country: string; prefs: MatchPrefs; inputRef: React.RefObject<HTMLInputElement>; onUse: (t: ItunesTrack) => void;
+}) {
+  const [q, setQ] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState<Candidate[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function run() {
+    const term = q.trim();
+    if (!term) return;
+    setBusy(true); setErr(null);
+    try {
+      const ref = parseAppleMusicUrl(term);
+      let tracks: ItunesTrack[];
+      if (ref) {
+        tracks = await lookup([ref.id], country);
+        if (ref.kind === 'song') {
+          const t = tracks.find((x) => x.trackId === ref.id);
+          if (!t) throw new Error(`That song isn't available in the "${country}" store.`);
+          onUse(t); setQ(''); setResults(null); inputRef.current?.blur(); return;
+        }
+      } else {
+        tracks = await searchSongs(term, country, 25);
+      }
+      setResults(rankTracks(item.ctx, tracks, prefs).map((s) => ({ track: s.track, score: s.score, flags: s.flags, titleSim: s.titleSim, artistSim: s.artistSim })));
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="manual">
+      <form className="row" onSubmit={(e) => { e.preventDefault(); run(); }}>
+        <input ref={inputRef} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') e.currentTarget.blur(); }} placeholder="Search Apple Music, or paste a music.apple.com link" />
+        <button className="secondary" disabled={busy}>{busy ? '…' : 'Search'} <kbd>/</kbd></button>
+      </form>
+      {err && <p className="bad">{err}</p>}
+      {results && (results.length ? <CandidateList candidates={results} onUse={(t) => { onUse(t); setResults(null); setQ(''); inputRef.current?.blur(); }} /> : <p className="muted">No results.</p>)}
+    </div>
+  );
+}
+
+function Queue({ items, index, onPick, matches, status, decisions }: {
+  items: ReviewItem[]; index: number; onPick: (i: number) => void;
+  matches: Map<string, MatchResult>; status: Map<string, string>; decisions: Map<string, { decision: DecisionValue }>;
+}) {
+  return (
+    <section className="card">
+      <h2>Queue</h2>
+      <table className="queue">
+        <tbody>
+          {items.map((it, i) => {
+            const m = matches.get(it.key);
+            const d = decisions.get(it.key)?.decision;
+            const st = status.get(it.key);
+            const conf = m?.userPicked ? 'high' : confidenceOf(m?.score ?? null);
+            return (
+              <tr key={it.key} className={i === index ? 'current' : ''} onClick={() => onPick(i)}>
+                <td className="nowrap">{d === 'keep' ? '✓' : d === 'skip' ? '✕' : d === 'later' ? '…' : ''}</td>
+                <td className="nowrap muted">{it.theme.slug}</td>
+                <td>{it.theme.songTitle} <span className="muted">· {displayTitle(it.show)}</span></td>
+                <td className="nowrap">{st === 'done' || st === 'error' ? <span className={`badge conf-${conf}`}>{m?.userPicked ? 'your pick' : CONF_LABEL[conf]}</span> : <span className="muted">{st}</span>}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function KeptSummary({ items, matches, decisions, country }: {
+  items: ReviewItem[]; matches: Map<string, MatchResult>; decisions: Map<string, { decision: DecisionValue; trackId: number | null }>; country: string;
+}) {
+  const [copied, setCopied] = useState<string | null>(null);
+  const kept = items.flatMap((it) => {
+    const d = decisions.get(it.key);
+    if (d?.decision !== 'keep' || !d.trackId) return [];
+    const c = matches.get(it.key)?.candidates.find((x) => x.track.trackId === d.trackId);
+    return [{ it, trackId: d.trackId, track: c?.track }];
+  });
+  if (!kept.length) return null;
+
+  const asText = kept.map(({ it, trackId, track }) =>
+    `${track?.trackName ?? it.theme.songTitle} — ${track?.artistName ?? it.theme.artists.join(', ')} (${displayTitle(it.show)} ${it.theme.slug}) ${songUrl(trackId, country)}`).join('\n');
+  const asJson = JSON.stringify({ country, ids: kept.map((k) => k.trackId) });
+  const copy = async (label: string, text: string) => {
+    try { await navigator.clipboard.writeText(text); setCopied(label); setTimeout(() => setCopied(null), 1500); } catch { prompt('Copy:', text); }
+  };
+
+  return (
+    <section className="card">
+      <h2>Kept ({kept.length})</h2>
+      <p className="muted">In playlist order (oldest show first). Adding to Apple Music comes in M4; for now copy the list.</p>
+      <div className="row">
+        <button onClick={() => copy('text', asText)}>{copied === 'text' ? 'Copied ✓' : 'Copy as text + links'}</button>
+        <button className="secondary" onClick={() => copy('json', asJson)}>{copied === 'json' ? 'Copied ✓' : 'Copy track IDs (for the Shortcut)'}</button>
+      </div>
+      <ol className="kept">
+        {kept.map(({ it, trackId, track }) => (
+          <li key={it.key}>
+            <a href={songUrl(trackId, country)} target="_blank" rel="noopener noreferrer">{track?.trackName ?? it.theme.songTitle}</a>
+            <span className="muted"> — {track?.artistName} · {displayTitle(it.show)} {it.theme.slug}</span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
