@@ -209,6 +209,14 @@ describe('parsePlaylist: Export Playlist shortcut text', () => {
     expect(r.warnings.join(' ')).toMatch(/1 song has no title; kept as blank rows/);
   });
 
+  it('keeps a blank last artist or duration when the lists need it to line up', () => {
+    const text = 'anisong-playlist v1\nX\n---titles---\nGurenge\nMystery\n\n---artists---\nLiSA\n\n\n---durations---\n238\n\n';
+    const r = parsePlaylist(text);
+    expect(r.rows.map((x) => [x.title, x.artist, x.durationMs])).toEqual([['Gurenge', 'LiSA', 238_000], ['Mystery', '', null]]);
+    expect(r.artistsKnown).toBe(true);
+    expect(r.warnings.join(' ')).not.toMatch(/line up/);
+  });
+
   it('handles a missing name line, missing sections and other versions', () => {
     const noName = parsePlaylist('anisong-playlist v1\n---titles---\nGurenge\n---artists---\nLiSA');
     expect(noName).toMatchObject({ playlistName: null, rows: [{ title: 'Gurenge', artist: 'LiSA' }] });

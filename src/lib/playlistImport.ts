@@ -349,12 +349,15 @@ const SECTIONS: Section[] = ['titles', 'artists', 'durations'];
  *
  * Blank lines inside a section are kept as empty entries (dropping them would
  * shift every later item onto the wrong song); blank lines at the end of a
- * section are separators. If a list's length disagrees with the titles it is
+ * section are separators, unless the list needs them to line up with the
+ * others (a last song with no artist or duration). If a list's length
+ * disagrees with the titles it is
  * not zipped by index: artists (or durations) are dropped for the whole
  * snapshot, with a warning.
  */
 function parseShortcutText(text: string, encoding: string): ParseResult {
   const lines = text.split(LINE);
+  if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop(); // the final newline ends a line, it isn't one
   const warnings: string[] = [];
   let i = lines.findIndex((l) => l.trim() !== '');
   const version = Number(lines[i]!.match(/v(\d+)/i)![1]);
@@ -389,7 +392,17 @@ function parseShortcutText(text: string, encoding: string): ParseResult {
     else if (line.trim()) stray++;
   }
   if (stray) warnings.push(`Ignored ${stray} line${stray === 1 ? '' : 's'} before the first section.`);
-  for (const l of Object.values(lists)) while (l.length && l[l.length - 1] === '') l.pop();
+  // Trailing blank lines are usually separators, but a blank last item (a song
+  // with no artist or duration) looks the same. Trim them, then give back as
+  // many as a list needs to reach the longest list's length.
+  const trimmed = new Map<string[], number>();
+  for (const l of Object.values(lists)) {
+    let n = 0;
+    while (l.length && l[l.length - 1] === '') { l.pop(); n++; }
+    trimmed.set(l, n);
+  }
+  const longest = Math.max(0, ...Object.values(lists).map((l) => l.length));
+  for (const [l, n] of trimmed) if (l.length) for (let k = 0; k < n && l.length < longest; k++) l.push('');
 
   const titles = lists.titles ?? [];
   const mapping: ColumnMapping = { title: 0, artist: null, album: null, time: null };
