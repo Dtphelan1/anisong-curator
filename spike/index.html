@@ -64,7 +64,7 @@
 <!-- 3b. Network diagnostics -->
 <section id="diag">
   <h2>3b · Network diagnostics</h2>
-  <p class="muted">Runs each probe once (about 8 requests, under 15 s) and shows exactly how each one fails. Use it on the device where search fails, then copy the result.</p>
+  <p class="muted">Runs each probe once (about 16 requests, under 30 s) and shows exactly how each one fails. Use it on the device where search fails, then copy the result.</p>
   <button id="dg-run">Run diagnostics</button>
   <button class="secondary" id="dg-copy">Copy diagnostics</button>
   <div id="dg-out"></div>
@@ -430,7 +430,7 @@ async function probeFetch(name, url, init = {}) {
       detail += ` acao=${res.headers.get('access-control-allow-origin') ?? '(none/unexposed)'} ctype=${res.headers.get('content-type') ?? '?'}`;
       const body = await res.text(); detail += ` body[0..80]=${JSON.stringify(body.slice(0, 80))}`;
     }
-    return { name, ok: res.type === 'opaque' || res.ok, outcome: res.type === 'opaque' ? 'reachable (opaque)' : `HTTP ${res.status}`, detail, ms: Math.round(performance.now() - t0), timing: timing(url) };
+    return { name, ok: res.type === 'opaque' || res.ok, outcome: res.type === 'opaque' ? 'reachable (opaque)' : res.type === 'opaqueredirect' ? 'REDIRECT (server sent a 3xx)' : `HTTP ${res.status}`, detail, ms: Math.round(performance.now() - t0), timing: timing(url) };
   } catch (e) {
     return { name, ok: false, outcome: e.name === 'AbortError' ? 'TIMEOUT (10 s)' : `${e.name}: ${e.message}`, detail: '', ms: Math.round(performance.now() - t0), timing: timing(url) };
   } finally { to.done(); }
@@ -481,6 +481,22 @@ $('dg-run').onclick = async () => {
   await run(probeFetch('iTunes lookup (CORS fetch)', 'https://itunes.apple.com/lookup?id=1529543135&country=us'));
   await run(probeFetch('Control: AnimeThemes GraphQL (CORS POST)', 'https://graphql.animethemes.moe/', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"query":"{ __typename }"}' }));
   await run(probeFetch('Control: AniList GraphQL (CORS POST)', 'https://graphql.anilist.co', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"query":"{ SiteStatistics { anime(perPage:1){ nodes { count } } } }"}' }));
+  // Search variants: which parameter (or path) triggers the failure? The first
+  // is the exact URL that worked when opened directly in Safari.
+  const SV = 'https://itunes.apple.com/search?term=gurenge';
+  const variants = [
+    ['URL that worked in the address bar', SV + '&entity=song&limit=1'],
+    ['term only', SV],
+    ['+ media=music', SV + '&media=music&entity=song&limit=1'],
+    ['+ country=us', SV + '&entity=song&limit=1&country=us'],
+    ['different term', 'https://itunes.apple.com/search?term=unravel&entity=song&limit=1'],
+    ['legacy wsSearch path', 'https://itunes.apple.com/WebObjects/MZStoreServices.woa/ws/wsSearch?term=gurenge&entity=song&limit=1'],
+    ['plain http://', 'http://itunes.apple.com/search?term=gurenge&entity=song&limit=1'],
+  ];
+  for (const [label, url] of variants) await run(probeFetch(`search variant: ${label}`, url + '&v=' + Date.now()));
+  // redirect:'manual' turns a redirect into an 'opaqueredirect' response
+  // instead of a failure, so this separates "redirected" from "blocked".
+  await run(probeFetch('app search URL, redirects NOT followed', DG_SEARCH + '&rm=1', { redirect: 'manual' }));
   // Real media URLs come from a lookup via JSONP or fetch, whichever works; else known-good fallbacks.
   let track = null;
   try { const r = await fetch('https://itunes.apple.com/lookup?id=1529543135&country=us&m=1'); track = (await r.json()).results[0]; } catch {}
