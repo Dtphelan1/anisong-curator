@@ -132,7 +132,7 @@ is the most exact duplicate source (§9.4).
    newer than the last show added" (picked by hand or suggested by V2), then
    add or remove individual shows.
 4. **Resolve themes** with AnimeThemes, falling back to Jikan. Cache permanently;
-   negative results get a TTL.
+   negative results get a TTL (§9.1).
 5. **Match** with iTunes Search (§9.2). This is the slow step because of the
    ~20 req/min limit. Run it in the background with a progress bar, so the
    review can start on matched items while the rest finish.
@@ -368,6 +368,19 @@ are dimmed. The "last show added" is the quick way in, not the only one.
 - Exclude `IN` (insert songs) by default. Dedupe reused songs by `song.id`.
 - Jikan strings (`"1: \"Gurenge\" by LiSA (eps 1-26)"`) are parsed with a regex
   and flagged as low-confidence.
+- **Jikan is best-effort.** Each request gets 8 s and one retry. On
+  2026-11-12 it accepted connections and reset them after ~10 s, which made
+  every visit to the songs step wait and then report an uncached error. Now:
+  - The first Jikan failure in a run stops Jikan for the rest of that run.
+  - A show AnimeThemes doesn't have and Jikan couldn't be asked about is
+    cached as "no songs" marked *incomplete*, and rechecked after 1 day
+    (7 days for a confirmed "no songs"). Re-fetch forces it sooner.
+  - Only an AnimeThemes failure is an error (uncached, retried next time).
+  - AnimeThemes requests get 30 s.
+- **No songs is normal for some formats.** Movies, specials, OVAs and shorts
+  often have no OP/ED, or one theme song not listed as either. The songs step
+  labels them by format ("Movie · no opening/ending listed", neutral) and
+  keeps the warning style for TV and ONA series. Music videos skip Jikan.
 
 ### 9.2 Matching on a 20-requests-per-minute budget
 The old problems remain: romaji vs native script, TV size vs full, karaoke

@@ -68,4 +68,10 @@ export interface ThemeLookup {
   themes: Theme[];
   source: 'animethemes' | 'jikan' | null;
   fetchedAt: number;
+  /**
+   * Set on a 'none' result when a source couldn't be asked (e.g. Jikan timed
+   * out), so "no songs" is only provisional: the lookup is cached, so the
+   * next visit doesn't wait on the same dead host, but rechecked sooner.
+   */
+  incomplete?: string;
 }

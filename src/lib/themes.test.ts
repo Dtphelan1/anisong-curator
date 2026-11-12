@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Show, Theme, ThemeLookup } from '../types';
 import fixture from './__fixtures__/animethemes-gql.json';
-import { isFresh, jikanToThemes, mapAnimeThemes, type AtGqlResponse, parseJikanTheme, resolveThemes, RECHECK_AFTER, type ThemeCache } from './themes';
+import { isFresh, jikanToThemes, mapAnimeThemes, type AtGqlResponse, parseJikanTheme, resolveThemes, RECHECK_AFTER, RECHECK_INCOMPLETE, type ThemeCache } from './themes';
 
 describe('parseJikanTheme', () => {
   it.each([
@@ -98,6 +98,40 @@ describe('resolveThemes', () => {
     expect(cache.data.size).toBe(0);
   });
 
+  it('caches a Jikan failure as a provisional "none" and stops asking Jikan for the run', async () => {
+    const cache = memCache();
+    const animeThemes = vi.fn(async (ids: number[]) => new Map(ids.filter((i) => i === 1).map((i) => [i, [theme(i)]])));
+    const jikan = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
+    const shows = [mkShow(1), mkShow(2, { format: 'MOVIE' }), mkShow(3), mkShow(4)];
+    const { lookups, errors } = await resolveThemes(shows, { cache, animeThemes, jikan, now: () => NOW });
+
+    expect(errors.size).toBe(0);
+    expect(jikan).toHaveBeenCalledTimes(1);
+    for (const id of [2, 3, 4]) {
+      expect(lookups.get(id)).toMatchObject({ status: 'none', incomplete: 'Jikan: Failed to fetch' });
+      expect(cache.data.get(id)?.incomplete).toBe('Jikan: Failed to fetch');
+    }
+    expect(lookups.get(1)?.status).toBe('found');
+  });
+
+  it('a cached provisional "none" is reused for a day, so the next visit does not wait on Jikan', async () => {
+    const cache = memCache([{ anilistId: 2, status: 'none', themes: [], source: null, fetchedAt: NOW, incomplete: 'Jikan: Failed to fetch' }]);
+    const animeThemes = vi.fn(async () => new Map<number, Theme[]>());
+    const jikan = vi.fn(async () => []);
+    await resolveThemes([mkShow(2, { format: 'MOVIE' })], { cache, animeThemes, jikan, now: () => NOW + 60_000 });
+    expect(animeThemes).not.toHaveBeenCalled();
+    expect(jikan).not.toHaveBeenCalled();
+  });
+
+  it('does not ask Jikan about music videos', async () => {
+    const cache = memCache();
+    const jikan = vi.fn(async () => []);
+    const { lookups } = await resolveThemes([mkShow(5, { format: 'MUSIC' })], { cache, animeThemes: async () => new Map(), jikan, now: () => NOW });
+    expect(jikan).not.toHaveBeenCalled();
+    expect(lookups.get(5)).toMatchObject({ status: 'none' });
+    expect(lookups.get(5)?.incomplete).toBeUndefined();
+  });
+
   it('isFresh: negatives and airing shows expire, finished shows do not', () => {
     const found: ThemeLookup = { anilistId: 1, status: 'found', themes: [], source: 'animethemes', fetchedAt: 0 };
     const none: ThemeLookup = { ...found, status: 'none' };
@@ -105,5 +139,8 @@ describe('resolveThemes', () => {
     expect(isFresh(found, mkShow(1, { airingStatus: 'RELEASING' }), RECHECK_AFTER + 1)).toBe(false);
     expect(isFresh(none, mkShow(1), RECHECK_AFTER - 1)).toBe(true);
     expect(isFresh(none, mkShow(1), RECHECK_AFTER + 1)).toBe(false);
+    const provisional: ThemeLookup = { ...none, incomplete: 'Jikan: timed out' };
+    expect(isFresh(provisional, mkShow(1), RECHECK_INCOMPLETE - 1)).toBe(true);
+    expect(isFresh(provisional, mkShow(1), RECHECK_INCOMPLETE + 1)).toBe(false);
   });
 });

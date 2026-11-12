@@ -1,5 +1,6 @@
 import type { Show, Theme, ThemeKind, ThemeLookup } from '../types';
 import { HttpError, limitedFetch, limiters } from './rateLimit';
+import { skipsJikan } from './mediaFormat';
 
 /* ------------------------------------------------------------------ */
 /* AnimeThemes (GraphQL)                                               */
@@ -109,7 +110,8 @@ export async function fetchFromAnimeThemes(
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ query: ANIMETHEMES_QUERY, variables: { id: slice } }),
       },
-      { fetchImpl },
+      // A 50-id batch normally answers in 1–3 s.
+      { fetchImpl, timeoutMs: 30_000 },
     );
     const body = (await res.json()) as AtGqlResponse;
     if (body.errors?.length) throw new Error(`AnimeThemes: ${body.errors.map((e) => e.message).join('; ')}`);
@@ -200,7 +202,9 @@ export function jikanToThemes(anilistId: number, data: { openings?: string[]; en
 
 export async function fetchFromJikan(anilistId: number, idMal: number, fetchImpl: typeof fetch = fetch): Promise<Theme[]> {
   try {
-    const res = await limitedFetch(limiters.jikan, `https://api.jikan.moe/v4/anime/${idMal}/themes`, undefined, { fetchImpl });
+    // Jikan is a best-effort fallback: answer quickly or not at all. (On
+    // 2026-11-12 it accepted connections and reset them after ~10 s.)
+    const res = await limitedFetch(limiters.jikan, `https://api.jikan.moe/v4/anime/${idMal}/themes`, undefined, { fetchImpl, timeoutMs: 8_000, retries: 1 });
     const body = (await res.json()) as { data?: { openings?: string[]; endings?: string[] } };
     return jikanToThemes(anilistId, body.data ?? {});
   } catch (err) {
@@ -221,11 +225,13 @@ export interface ThemeCache {
 const DAY = 86_400_000;
 /** Negative results and still-airing shows are re-checked after this. */
 export const RECHECK_AFTER = 7 * DAY;
+/** A negative result that a source couldn't confirm is re-checked after this. */
+export const RECHECK_INCOMPLETE = DAY;
 
 /** Can this cached lookup be reused? */
 export function isFresh(lookup: ThemeLookup, show: Show, now: number): boolean {
   const age = now - lookup.fetchedAt;
-  if (lookup.status === 'none') return age < RECHECK_AFTER;
+  if (lookup.status === 'none') return age < (lookup.incomplete ? RECHECK_INCOMPLETE : RECHECK_AFTER);
   // Airing shows gain new OP/EDs mid-season; finished shows are stable.
   if (show.airingStatus && show.airingStatus !== 'FINISHED') return age < RECHECK_AFTER;
   return true;
@@ -249,8 +255,14 @@ export interface ResolveDeps {
 
 /**
  * Resolve themes for each show: cache → AnimeThemes → Jikan (by MAL id).
- * Errors from one source don't abort the run: affected shows are returned as
- * errors and are NOT cached, so they're retried next time.
+ *
+ * - An AnimeThemes failure is an error: those shows are returned in `errors`
+ *   and NOT cached, so they're retried next time.
+ * - Jikan is a fallback. If it fails, the show is cached as 'none' with
+ *   `incomplete` set (rechecked after RECHECK_INCOMPLETE), and Jikan isn't
+ *   asked again for the rest of the run: one dead host costs one timeout,
+ *   not one per show.
+ * - Formats that don't have OP/EDs of their own (music videos) skip Jikan.
  */
 export async function resolveThemes(
   shows: Show[],
@@ -290,22 +302,27 @@ export async function resolveThemes(
   }
   report('animethemes');
 
+  let jikanDown: string | null = null;
   for (const s of todo.filter((x) => !lookups.has(x.anilistId))) {
-    if (s.idMal) {
-      try {
-        const themes = await jikan(s.anilistId, s.idMal);
-        if (themes.length) {
-          await store({ anilistId: s.anilistId, status: 'found', themes, source: 'jikan', fetchedAt: now() });
-          report('jikan');
-          continue;
+    let incomplete: string | undefined;
+    if (s.idMal && !skipsJikan(s.format)) {
+      if (jikanDown) {
+        incomplete = jikanDown;
+      } else {
+        try {
+          const themes = await jikan(s.anilistId, s.idMal);
+          if (themes.length) {
+            await store({ anilistId: s.anilistId, status: 'found', themes, source: 'jikan', fetchedAt: now() });
+            report('jikan');
+            continue;
+          }
+        } catch (err) {
+          jikanDown = `Jikan: ${(err as Error).message}`;
+          incomplete = jikanDown;
         }
-      } catch (err) {
-        errors.set(s.anilistId, `Jikan: ${(err as Error).message}`);
-        report('jikan');
-        continue;
       }
     }
-    await store({ anilistId: s.anilistId, status: 'none', themes: [], source: null, fetchedAt: now() });
+    await store({ anilistId: s.anilistId, status: 'none', themes: [], source: null, fetchedAt: now(), ...(incomplete ? { incomplete } : {}) });
     report('jikan');
   }
   report('done');

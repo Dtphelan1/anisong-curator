@@ -48,25 +48,62 @@ export class HttpError extends Error {
   }
 }
 
+/** Thrown when a request gets no response within its time limit. */
+export class TimeoutError extends Error {
+  constructor(public host: string, public ms: number) {
+    super(`${host} didn't answer within ${Math.round(ms / 1000)} s`);
+    this.name = 'TimeoutError';
+  }
+}
+
+export interface LimitedFetchOptions {
+  retries?: number;
+  sleep?: (ms: number) => Promise<void>;
+  fetchImpl?: typeof fetch;
+  /**
+   * Abort an attempt that gets no response in this many ms (the clock starts
+   * when the limiter releases it, not while it waits in the queue). Without
+   * one, a host that accepts connections and then hangs or resets stalls the
+   * caller for as long as the browser cares to wait.
+   */
+  timeoutMs?: number;
+}
+
 /**
  * fetch through a limiter, retrying 429 (and 503) with Retry-After or
- * exponential backoff. Other non-2xx responses throw HttpError.
+ * exponential backoff. Other non-2xx responses throw HttpError; a timeout
+ * throws TimeoutError.
  */
 export async function limitedFetch(
   limiter: Limiter,
   url: string,
   init?: RequestInit,
-  { retries = 3, sleep = realSleep, fetchImpl = fetch }: { retries?: number; sleep?: (ms: number) => Promise<void>; fetchImpl?: typeof fetch } = {},
+  { retries = 3, sleep = realSleep, fetchImpl = fetch, timeoutMs }: LimitedFetchOptions = {},
 ): Promise<Response> {
+  const host = new URL(url).host;
+  const attemptOnce = async () => {
+    if (!timeoutMs) return fetchImpl(url, init);
+    const ctrl = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; ctrl.abort(); }, timeoutMs);
+    try {
+      return await fetchImpl(url, { ...init, signal: ctrl.signal });
+    } catch (err) {
+      if (timedOut) throw new TimeoutError(host, timeoutMs);
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
   for (let attempt = 0; ; attempt++) {
-    const res = await limiter.schedule(() => fetchImpl(url, init));
+    const res = await limiter.schedule(attemptOnce);
     if (res.ok) return res;
     if ((res.status === 429 || res.status === 503) && attempt < retries) {
       const retryAfter = Number(res.headers.get('Retry-After'));
       await sleep(retryAfter > 0 ? retryAfter * 1000 : 2000 * 2 ** attempt);
       continue;
     }
-    throw new HttpError(res.status, `HTTP ${res.status} from ${new URL(url).host}`);
+    throw new HttpError(res.status, `HTTP ${res.status} from ${host}`);
   }
 }
 
