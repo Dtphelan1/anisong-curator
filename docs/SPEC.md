@@ -76,7 +76,7 @@ or the bundle.
 
 ```
 ┌──────────────────── Browser SPA (Vite + React + TS) ─────────────────────┐
-│ Load list → Pick anime → Songs → Review → Kept (dedupe + export)         │
+│ Load list → Pick anime → Songs → Review → Already have → Add to playlist │
 │                                                                          │
 │ anilist.ts   themes.ts      matcher.ts +    itunes.ts                    │
 │ GraphQL      AnimeThemes    matching.ts     iTunes Search / Lookup       │
@@ -136,50 +136,95 @@ is the most exact duplicate source (§9.4).
 5. **Match** with iTunes Search (§9.2). This is the slow step because of the
    ~20 req/min limit. Run it in the background with a progress bar, so the
    review can start on matched items while the rest finish.
-6. **Review.** A card per theme: show, OP1/ED2, matched track, confidence badge,
-   and a `<audio>` player on `previewUrl`. The card's frame takes the colour
-   of the match's status badge (confident / check me / unlikely / no match;
-   violet when you already have the song). Keys: decisions are by position:
-   `1` keep (labelled **Hold back** for songs you already have), `⇧1` add
-   anyway, `2` skip, `3` later. Also `←/→`, `space`, `C` candidates, `/`
-   manual search. With no match, a **Search YouTube** button opens a separate
-   window searching for the title, artists, anime and OP/ED slug. **Done ·
-   Export** (and an "all decided" prompt) opens the Kept tab. Manual search
-   also accepts a pasted `music.apple.com/.../song/...` or `?i=` URL, which is
-   parsed to a `trackId` and resolved with Lookup. This is an exact escape hatch
-   for anything the matcher misses.
-   - **Layout:** on desktop (≥ 900 px) the card is pinned on the left and a
-     tabbed side panel (Queue / Kept / Later) on the right, each scrolling on
-     its own, so the song under review never leaves the screen. Narrow screens
-     stack them.
-   - **Candidate and search lists** are height-capped and scrollable, with a
-     score bar per row. Weak, cover and karaoke results collapse behind "show
-     N more". Previews play through one shared player (`sampler.ts`), so only
-     one plays at a time, the card's own player included.
+6. **Review: a session in three phases** (`src/components/review/`). Sessions
+   are quarterly, about 20–60 songs, usually done in one sitting with
+   headphones on a desktop. A phase bar under the header reads **1 · Review ·
+   N**, **2 · Already have · N**, **3 · Add to playlist**, with ✓ on finished
+   phases; each phase opens by clicking it, and the header's **Next** button
+   advances (straight to Add to playlist when nothing is already in the
+   playlist). Phases 1–2 finishing is "review complete"; the session is done
+   only when the songs are confirmed in the playlist (step 7).
+   - **Saved place.** Decisions are in IndexedDB as before; the phase, the
+     current song of each pass, the queue view and the recorded batch are kept
+     in `localStorage` (`session.ts`), and a reload mid-review reopens the
+     review where you were. A session for other songs starts over.
+   - **Phase 1, Review:** the songs with no "already have" hit, split view:
+     queue on the left, the song on the right, each scrolling on its own.
+     - **Song card:** the show, the theme spelled out ("Opening 3", "Ending 1",
+       from kind and sequence: `themeLabel.ts`) and a confidence pill
+       (**Confident · 100%**, **Check me · 73%**, **Unlikely**, **No match**,
+       **Search failed**, **Your pick**). A two-column comparison, **From the
+       show** (AnimeThemes title, native title, artists; no album, AnimeThemes
+       has none) | **Apple Music match** (art, title, artist, album, length),
+       with **reason chips** derived from the chosen candidate (`reasons.ts`):
+       artist matches / similar / different artist, title differs, TV size /
+       full version, cover?, karaoke, live, soundtrack album, not streamable,
+       your pick, linked on AnimeThemes.
+     - **Player:** the card's own `<audio>` on `previewUrl`, with a big
+       play/pause, a seekable progress bar and an **Autoplay** switch
+       (`role="switch"`, on by default; it applies from the next song). It and
+       the candidate previews never play at once (`sampler.ts`).
+     - **Decisions:** **Keep** `1` and **Skip** `2` are large; **Later** `3`
+       and **Later: whole show** `⇧3` (every undecided song of the current
+       show in this pass, for a show whose matches are all bad) are quiet.
+       After a decision the next undecided song in the visible order opens.
+       A song with a hit is not in this queue, but if you reach it anyway
+       (say, a fix picked a track you have), Keep reads **Hold back** and
+       **Add anyway** `⇧1` appears.
+     - **Not it?** (`C`): **YouTube ↗** (a separate, reused window searching
+       title, artists, anime and slug), the in-playlist check ("Not in your
+       playlist", "In your playlist: #212"), search or paste a link (`/`), and
+       the other candidates. Open by default for check me, unlikely, no match
+       and failed searches; one line for confident ones. A pasted
+       `music.apple.com/.../song/...` or `?i=` URL is parsed to a `trackId`
+       and resolved with Lookup: an exact escape hatch for anything the
+       matcher misses. A failed search shows **Try again**.
+     - **Candidate and search lists** are height-capped, with a score per row;
+       weak, cover and karaoke results collapse behind "show N more".
    - **Queue** (`queueView.ts`):
-     - Sort by original order, match status (confident → your pick → check me
-       → unlikely → no match; or reversed), anime, song title or decision.
-     - Filter chips with counts (Undecided, Check me, No match, Already have,
-       Kept, Later, Skipped), and an optional group-by-anime with per-show
-       progress.
-     - The current song is tracked by **key**, not position. The view's order
-       is **frozen**: a status change (e.g. no match → your pick) updates the
-       row in place instead of moving it, and an "Order out of date · refresh"
-       pill offers the re-sort.
-     - ←/→ and "next undecided" follow the visible order. The song you're on
-       stays listed even after it leaves the filter. Prev / Next and the
-       position ("3 of 12") sit above the queue, which owns the ←/→ keys.
-     - A failed search is its own state ("search failed", grouped with No
-       match); the card offers **Try again** and **Search YouTube**.
-7. **Kept: dedupe and export** (§9.4).
-   1. Optionally refresh the playlist snapshot: run `Anisong Export Playlist`
-      and paste its text into **Sync playlist** (or import a Mac export).
-   2. The app holds back likely duplicates (against the snapshot and the add
-      log), with reasons and **add anyway**.
-   3. **Copy** (or **Share…**) the rest, in chronological order, and run
-      `Anisong Add Kept`.
-   4. Press **I added these**: the batch goes into the add log (undoable),
-      so it's never exported again.
+     - "Queue · i of n" with ←/→ buttons; sort by **Watch order** (the
+       default, oldest show first), match status (confident → your pick →
+       check me → unlikely → no match, or reversed), song title, decision or
+       anime, with a direction toggle; **By show** grouping, on by default,
+       with a header per show (AniList cover or a tinted placeholder, title,
+       decided / total).
+     - Filter chips with counts: All, To decide, Check me, No match, Later,
+       Kept, Skipped.
+     - Rows: a decision mark (`✓` kept, `⊘` held back, `✓+` add anyway, `…`
+       later, `✕` skipped), the slug, the title and a dot coloured by match
+       state.
+     - The current song is tracked by **key**, not position. The order is
+       **frozen**: a status change (e.g. no match → your pick) updates the
+       row in place, and an **Order changed · refresh** pill offers the
+       re-sort. The song you're on stays listed even after it leaves the
+       filter or the pass.
+     - The footer counts the songs set aside: "N already in your playlist ·
+       their own pass next".
+   - **Phase 2, Already have:** the same split view for the songs with a hit
+     (any tier), in watch order. The comparison's left column is the
+     playlist's copy (**In your playlist · #212**: title, artist, album when
+     known, length) with chips such as "same title and artist", "different
+     album", "match 3 s longer". **Add anyway** `1` keeps it with the
+     override; **Skip** `2` is the default, and an undecided song here counts
+     as skipped. **Skip the rest (N)** sits in the header.
+   - **Keys:** `J` or `→` next, `K` or `←` previous (the visible order); `1`
+     `2` `3` `⇧1` `⇧3` as above (by `e.code`, so any layout works); `space`
+     play/pause; `C` Not it?; `/` search. One handler; none fire while typing.
+     A compact legend sits at the foot of the song.
+   - **Layout:** at ≥ 900 px the page fits the window and both panes scroll on
+     their own; narrower, the song stacks above the queue.
+7. **Add to playlist: dedupe and export** (§9.4). The songs to add, grouped by
+   show in watch order, with summary chips (kept + added anyway, skipped,
+   already have and skipped, left for later, not decided), beside three
+   steps:
+   1. **Playlist checked:** the snapshot's age and size, and **Sync playlist**
+      (paste what `Anisong Export Playlist` copied, or a Mac export).
+   2. **Copy, then run `Anisong Add Kept`:** **Copy N songs** (or **Share to
+      the shortcut…**), in watch order. The export format is a small option
+      (Shortcut, Text + links, JSON).
+   3. **Did they land?** **Yes, mark as added** records the batch in the add
+      log (so it's never exported again) and shows **Session done**, with
+      Undo. **Not yet** leaves everything as it is.
 
 ## 6. Shortcuts
 
@@ -234,7 +279,7 @@ documented.
   ordered Mac export.
 
 ### 6.3 Manual fallback: link checklist
-If adding from links ever stops working, the Kept list becomes a checklist of
+If adding from links ever stops working, the songs to add become a checklist of
 `music.apple.com` links in order. Each opens in Music, and you add it with
 "+". That's tolerable at ~10–25 songs a season, and still saves all of the
 discovery and review work.
@@ -396,12 +441,11 @@ silently dropping one you meant to add. No API offers a duplicate prompt or
 lets us remove a track afterwards, so prevention has to happen before adding.
 
 **App-side only.** The check runs in the app, against two sources:
-- **The playlist snapshot**, refreshed with **Sync playlist** in the Kept
-  section: paste the text `Anisong Export Playlist` copies (format: §6.2), or
-  import a Mac export (§9.5). The Kept section shows the snapshot's name, size,
-  age and source, and nudges you to sync when there's none or it's over 7 days
-  old.
-- **The add log.** When you press **I added these** after running
+- **The playlist snapshot**, refreshed with **Sync playlist** in the Add to
+  playlist step: paste the text `Anisong Export Playlist` copies (format:
+  §6.2), or import a Mac export (§9.5). That step shows the snapshot's age,
+  size and source, and flags it when there's none or it's over 7 days old.
+- **The add log.** When you press **Yes, mark as added** after running
   `Anisong Add Kept`, the exported batch is recorded (`trackId`, title, artist,
   duration, batch, time; undoable). It covers what the app added since the
   last sync, so a stale snapshot still catches the app's own additions.
@@ -445,26 +489,29 @@ Thresholds are tuned on real AnimeThemes and iTunes names in
 on ties). Rows are indexed by title bigrams, so a 2,000-row playlist × 50 kept
 songs takes tens of milliseconds.
 
-**In the UI.** The review uses the same scoring, so what the card says is what
-the export does.
-- **Every song is still reviewed;** nothing is hidden or skipped for you.
+**In the UI.** The review uses the same scoring, so what the review says is
+what the export does.
+- **Every song is still reviewed,** but songs with a hit (any tier) don't
+  interrupt the main review: they get their own pass, **Already have**, after
+  it, in the same split view. Skip is the default there (an undecided one
+  counts as skipped); **Add anyway** (`1`) exports it regardless. A song you
+  kept that the app then recorded as added stays where you decided it.
 - **One "already have" colour** (violet `--have`, distinct from the confidence
-  and warning colours) marks it everywhere: the badge ("already in playlist" is
-  filled; "likely" is outlined; "other version" is dashed; hovering it names
-  the matched playlist row and its score) and a tinted card frame. There's no
-  banner: one that comes and goes moves the card around when flipping through
-  songs quickly. In the queue, the badge alone marks it.
-- **On such a song, Keep becomes "Hold back"** (`1`), and **Add anyway**
-  (`⇧1`) overrides it. The override is stored on the decision
-  (`addAnyway`), so the card, the queue and the Kept list agree and it survives
-  reloads. It's cleared when the song is recorded as added.
-- **Queue markers say what will happen:** `✓` exported, `⊘` kept but held back,
-  `✓+` add anyway, `…` later, `✕` skipped. A **Later** list keeps deferred songs
-  visible.
-- **The Kept section** (with **Sync playlist**, shown even before anything is
-  kept, so the flags work during review) splits into **To add** and **Held
-  back**. Each held song shows its reason, the matched row, the tier and the
-  score, with **add anyway**. Only **To add** is copied.
+  and warning colours) marks it everywhere: the pill ("already in playlist" is
+  filled; "likely" is outlined; "other version" is dashed), the comparison's
+  **In your playlist · #pos** column, the in-playlist chip under **Not it?**,
+  and the queue's score.
+- **If such a song is reached during the review anyway**, Keep becomes **Hold
+  back** (`1`) and **Add anyway** (`⇧1`) overrides it. The override is stored
+  on the decision (`addAnyway`), so both passes and the export agree and it
+  survives reloads. Recording the batch clears it (Undo restores it).
+- **Queue markers say what will happen:** `✓` exported, `⊘` kept but held
+  back, `✓+` add anyway, `…` later, `✕` skipped.
+- **Add to playlist** (with **Sync playlist**, reachable from the review's
+  queue footer when nothing is synced, so the passes split early) lists only
+  what will be copied; anything still held back (listed twice, or found since)
+  sits under **Held back**, with its reason, the matched row, the tier and the
+  score, and **add anyway**.
 
 **Open:** does the Shortcuts **Add to Playlist** action skip songs already in
 the playlist? (The Music app asks; Shortcuts may add silently.) Either way the

@@ -6,8 +6,8 @@ your iPhone or Mac; they sync over iCloud.
 
 | Shortcut | What it does | Where the app uses it |
 |---|---|---|
-| **`Anisong Add Kept`** | Adds the songs you kept to your playlist, or to a new playlist | **Kept** section → **Copy** (or **Share…**) |
-| **`Anisong Export Playlist`** | Copies your playlist's songs as text, so the app can check for duplicates | **Kept** section → **Sync playlist** |
+| **`Anisong Add Kept`** | Adds the songs you kept to your playlist, or to a new playlist | **Add to playlist** step → **Copy** (or **Share to the shortcut…**) |
+| **`Anisong Export Playlist`** | Copies your playlist's songs as text, so the app can check for duplicates | **Add to playlist** step → **Sync playlist** |
 
 Name them **exactly** as above: plain spaces, no dots or other punctuation.
 The app's instructions refer to these names.
@@ -17,16 +17,18 @@ update it in the app's settings and in both shortcuts.
 
 ## Workflow
 
-1. In the app, review songs and keep the ones you want.
+1. In the app, review songs and keep the ones you want. Songs already in
+   your playlist get their own pass afterwards (**Already have**).
 2. Run **Anisong Export Playlist** and paste the result into **Sync
-   playlist** in the Kept section. This is needed only when the playlist
-   changed outside the app since your last sync.
-3. The Kept section holds back duplicates and shows **N to add**. Press
-   **Copy**.
+   playlist** in the app's **Add to playlist** step. This is needed only
+   when the playlist changed outside the app since your last sync; syncing
+   before you review sets those songs aside early.
+3. The **Add to playlist** step holds back duplicates and shows **Add N
+   songs**. Press **Copy N songs**.
 4. Run **Anisong Add Kept** and choose **🔥 AniSong MegaMix** (or **New
    playlist** to try it out first).
-5. Back in the app, press **I added these**. Those songs are never exported
-   again.
+5. Back in the app, under **Did they land?**, press **Yes, mark as added**.
+   Those songs are never exported again.
 
 Duplicate checking happens **only in the app**. It matches likely duplicates
 even when names or track IDs differ (e.g. 勇者 vs "Yuusha"). The shortcuts
@@ -84,8 +86,8 @@ differs, search the action list for the bolded name.
 
 Adds the copied songs, in order, to your playlist or to a new one.
 
-**Input:** the text from the app's Kept section. In the **Shortcut** format
-that's one song per line:
+**Input:** the text the app's **Add to playlist** step copies. In the
+**Shortcut** format that's one song per line:
 
 ```
 Gurenge | LiSA | https://music.apple.com/us/song/1538286723

@@ -57,11 +57,51 @@ batches by priority. Tick them off as they ship; add new findings at the end.
   now shows "Search failed" with **Try again** and **Search YouTube**, and the
   queue labels it "search failed" (listed under No match).
 
+## Triage v2: a session in three phases ✅
+A redesign from three approved mockups (split-pane triage, an already-have
+pass, and an add-to-playlist page), for how the review is really used:
+quarterly sessions of about 20–60 songs on a desktop with headphones, most
+songs decided in the first seconds, unsure matches checked against YouTube and
+the playlist and fixed on the spot. It replaces Batch A's card-plus-tabs
+layout and the "Done · Export" exit.
+- [x] **Three phases** with a phase bar ("1 · Review · N", "2 · Already have
+  · N", "3 · Add to playlist", ✓ when finished, each clickable) and a **Next**
+  button in the header. The Queue / Kept / Later tabs are gone: Kept, Later
+  and Skipped are queue filters, and the export is phase 3.
+- [x] **Songs you already have don't interrupt the review:** they get their
+  own pass in the same split view, with the playlist's copy next to the match
+  and reason chips. Skip is the default; `1` adds anyway. **Skip the rest**.
+- [x] **Split view:** the queue on the left ("Queue · i of n", sort with
+  **Watch order** first, a direction toggle, **By show** grouping on by
+  default with AniList covers and decided / total, filter chips To decide /
+  Check me / No match / Later / Kept / Skipped, a status dot per row), the song
+  on the right.
+- [x] **The song card says what to check:** show and "Opening 3" spelled out,
+  a confidence pill, **From the show | Apple Music match** side by side with
+  album art, and reason chips (artist matches, title differs, full version,
+  cover?, soundtrack album…). This covers Batch B's side-by-side check.
+- [x] **A real player:** big play/pause, a seekable progress bar, and a
+  prominent **Autoplay** switch.
+- [x] **Later is quieter,** and **Later: whole show** (`⇧3`) punts a show
+  whose matches are all bad.
+- [x] **"Not it?"** gathers YouTube, the in-playlist check, search or paste a
+  link, and the other candidates. It opens by itself for check me, unlikely,
+  no match and failed searches; it's one line for confident songs (`C`).
+- [x] **Keys:** `J`/`K` as well as the arrows, one handler for the whole
+  review, a compact legend at the foot of the song.
+- [x] **Progress is saved:** the phase, the current song of each pass and the
+  queue view survive a reload, which reopens the review where you were.
+- [x] **Two "dones":** review complete (phases 1–2), and **Session done**
+  after **Yes, mark as added** under "Did they land?" (with Undo).
+- [x] **Palette:** the mockups' dark palette as design tokens, a light
+  counterpart, Inter; text contrast ≥ 4.5:1 in both. This covers Batch D's
+  contrast item.
+
 ## Batch B: faster, safer decisions
 - [ ] **Undo toast** after each decision ("Kept *Hologram* (held back) ·
   Undo"), plus `U` to undo the last few.
-- [ ] **Side-by-side check for "check me" songs:** AnimeThemes' title, artist
-  and episodes next to the Apple Music match, with differences highlighted.
+- [x] **Side-by-side check for "check me" songs:** done in Triage v2 (without
+  episodes, which weren't needed).
 - [ ] **"Watch the OP/ED" link to AnimeThemes,** to confirm it's the song you
   remember.
 - [ ] **Progress bar** (decided / matched / total) in place of the text
@@ -89,7 +129,7 @@ batches by priority. Tick them off as they ship; add new findings at the end.
   gestures.
 - [ ] **Screen readers:** announce status changes ("matched", "kept") in a
   live region; return focus to the card after a decision.
-- [ ] **Contrast:** check the muted grey text in dark mode.
+- [x] **Contrast:** checked in Triage v2 (muted grey ≥ 7:1 in dark mode).
 
 ## Notes
 - **Keep slows the next match a little.** Each Keep triggers a Japan-store name
