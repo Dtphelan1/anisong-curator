@@ -57,9 +57,11 @@ interface StepProps {
   /** Mark this step and move on (or back). */
   onStep: (state: StepState) => void;
   onBack: () => void;
+  /** The step's own component has Continue / Skip (the playlist import does). */
+  ownActions?: boolean;
 }
 
-export function SetupStepPage({ step, settings, update, anilist, playlistSlot, onStep, onBack }: StepProps) {
+export function SetupStepPage({ step, settings, update, anilist, playlistSlot, onStep, onBack, ownActions = false }: StepProps) {
   const i = SETUP_STEPS.indexOf(step);
   const t = TITLES[step];
   const last = i === SETUP_STEPS.length - 1;
@@ -85,10 +87,12 @@ export function SetupStepPage({ step, settings, update, anilist, playlistSlot, o
       <div className="setup-actions">
         <button className="btn-line" onClick={onBack}>← Back</button>
         <span className="spacer" />
-        {t.skippable && <button className="btn-link" onClick={() => onStep('skipped')}>Skip for now</button>}
-        <button className="btn-accent" disabled={!canContinue} onClick={() => onStep('done')}>
-          {last ? 'Pick your first anime →' : 'Continue →'}
-        </button>
+        {!ownActions && t.skippable && <button className="btn-link" onClick={() => onStep('skipped')}>Skip for now</button>}
+        {!ownActions && (
+          <button className="btn-accent" disabled={!canContinue} onClick={() => onStep('done')}>
+            {last ? 'Pick your first anime →' : 'Continue →'}
+          </button>
+        )}
       </div>
     </main>
   );

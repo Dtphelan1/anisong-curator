@@ -108,6 +108,8 @@ export interface RecordedBatch {
   playlistName: string;
   /** Songs that went out as "add anyway": recording clears the override, Undo restores it. */
   anyway?: string[];
+  /** "Last show added" before this batch moved it forward; Undo puts it back. */
+  prevBound?: number | null;
 }
 
 export interface SessionState {

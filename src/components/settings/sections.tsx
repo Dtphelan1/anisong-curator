@@ -123,9 +123,7 @@ export function PlaylistSection({ mode, settings, update, children }: { mode: Mo
         <input value={settings.playlistName} onChange={(e) => update({ playlistName: e.target.value })} size={28} aria-label="Playlist name" />
       </Field>
       {children && <div className="set-slot">{children}</div>}
-      {mode === 'setup' && (
-        <p className="set-hint">Importing it lets the app spot songs you already have. You can skip this and import later from Settings.</p>
-      )}
+      {mode === 'setup' && <p className="set-hint">Importing it lets the app spot songs you already have.</p>}
     </div>
   );
 }

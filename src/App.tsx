@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fetchViewerName } from './lib/anilist';
-import { db, loadLatestSnapshot, themeCache, type PlaylistSnapshot } from './lib/db';
+import { db, themeCache } from './lib/db';
 import { orderShows } from './lib/ordering';
-import { selectedShows, selectNewer } from './lib/selection';
+import { selectedShows, selectNewer, selectNone, setShows } from './lib/selection';
 import { isSetupComplete, nextSetupStep, SETUP_STEPS, useSettings, type SetupStep, type StepState } from './lib/settings';
 import { resolveThemes, sortThemes } from './lib/themes';
 import { cachedSongCounts } from './lib/songCounts';
@@ -12,14 +12,14 @@ import { parseHash, useRoute, type Route } from './app/router';
 import { oauthReturn, oauthToken } from './app/oauth';
 import { AppHeader, type Crumb } from './components/shell/AppHeader';
 import { SettingsPanel } from './components/settings/SettingsPanel';
+import { ago } from './components/settings/sections';
 import { SetupStepPage, Welcome } from './pages/Setup';
-import { PlaylistPanel } from './components/PlaylistPanel';
+import { PlaylistChip, PlaylistImport, PlaylistPage, type PlaylistFilter } from './components/playlist';
+import { useCoverage, useLastShowSuggestion, usePlaylistLibrary, usePlaylistSnapshot } from './lib/usePlaylistLibrary';
 import { AnimePage } from './pages/AnimePage';
 import type { LookupState } from './components/anime/LookupFooter';
 import { Review } from './components/review/Review';
 import './components/shell/shell.css';
-
-const EMPTY_COVERAGE = new Map<number, { inPlaylist: number; total: number | null }>();
 
 /** Pre-router builds remembered the step here; read once to reopen a review. */
 const LEGACY_STEP_KEY = 'anisong-curator.step';
@@ -63,14 +63,16 @@ export function App() {
   }, [setupDone, page.name, settings.onboarding, navigate]);
 
   /* ---------------- session state ---------------- */
-  const [snapshot, setSnapshot] = useState<PlaylistSnapshot | null>(null);
-  const [suggestedId, setSuggestedId] = useState<number | null>(null);
+  const snapshot = usePlaylistSnapshot();
+  const { status: playlist } = usePlaylistLibrary();
+  const suggestion = useLastShowSuggestion(anilist.shows);
+  const coverage = useCoverage();
+  const [playlistFilter, setPlaylistFilter] = useState<PlaylistFilter>('all');
   const [lookup, setLookup] = useState<LookupState | null>(null);
   /** Bumped to cancel a lookup: results from an older run are ignored. */
   const lookupRun = useRef(0);
   const [songCounts, setSongCounts] = useState<Map<number, number | 'none'>>(new Map());
   const [lastSessionAt, setLastSessionAt] = useState<number | null>(null);
-  useEffect(() => { loadLatestSnapshot().then(setSnapshot); }, []);
   useEffect(() => { void db.added.orderBy('addedAt').last().then((r) => setLastSessionAt(r?.addedAt ?? null)); }, [page.name]);
 
   const ordered = useMemo(() => orderShows(anilist.shows, settings.order), [anilist.shows, settings.order]);
@@ -136,13 +138,35 @@ export function App() {
       ]
     : [];
 
-  const playlistSlot = (
-    <PlaylistPanel
-      playlistName={settings.playlistName} snapshot={snapshot} onSnapshot={setSnapshot}
-      shows={anilist.shows} ordered={ordered} direction={settings.order.direction} boundId={settings.boundId}
-      onBound={(boundId) => update({ boundId, selection: selectNewer() })} onSuggest={setSuggestedId}
-    />
+  const playlistSettings = (
+    <div className="set-section">
+      {playlist && playlist.rowCount > 0 && (
+        <div className="set-inline">
+          <span>
+            <b>{playlist.rowCount} songs</b> · synced {ago(playlist.syncedAt)} · {playlist.linked} linked · {playlist.unlinked} unlinked
+            {playlist.pendingAdds > 0 && <> · {playlist.pendingAdds} added, not seen yet</>}
+            {!playlist.ordered && <span className="muted"> · in import order</span>}
+          </span>
+          <button className="btn-line" onClick={() => { setPlaylistFilter('all'); navigate({ page: { name: 'playlist' }, settings: null }); }}>Open playlist</button>
+        </div>
+      )}
+      <PlaylistImport variant="settings" shows={anilist.shows} playlistName={settings.playlistName} />
+    </div>
   );
+
+  /** "Yes, mark as added": the newest show of the batch becomes the last show added. Returns the previous one, for Undo. */
+  const onAdded = (ids: number[]) => {
+    const idx = new Map(ordered.map((o, i) => [o.show.anilistId, i]));
+    const known = ids.filter((id) => idx.has(id));
+    if (!known.length) return undefined;
+    const newest = known.reduce((a, b) => {
+      const ia = idx.get(a)!, ib = idx.get(b)!;
+      return settings.order.direction === 'desc' ? (ib < ia ? b : a) : (ib > ia ? b : a);
+    });
+    const prev = settings.boundId;
+    update({ boundId: newest, selection: selectNewer() });
+    return prev;
+  };
 
   const header = (
     <AppHeader
@@ -153,12 +177,19 @@ export function App() {
         user: anilist.user, loadedAt: anilist.loadedAt, loading: anilist.loading,
         onRefresh: () => void anilist.load(), onOpen: () => openSettings('anilist'),
       } : null}
+      playlist={setupDone ? (
+        <PlaylistChip
+          playlistName={settings.playlistName}
+          onOpen={(filter) => { setPlaylistFilter(filter ?? 'all'); navigate({ page: { name: 'playlist' }, settings: null }); }}
+          onResync={() => openSettings('playlist')} onSettings={() => openSettings('playlist')}
+        />
+      ) : null}
     />
   );
   const settingsPanel = route.settings && (
     <SettingsPanel
       section={route.settings} onSection={(s) => navigate({ settings: s }, { replace: true })} onClose={closeSettings}
-      settings={settings} update={update} anilist={anilist} playlistSlot={playlistSlot} onRerunSetup={rerunSetup}
+      settings={settings} update={update} anilist={anilist} playlistSlot={playlistSettings} onRerunSetup={rerunSetup}
     />
   );
 
@@ -170,7 +201,12 @@ export function App() {
     const i = SETUP_STEPS.indexOf(page.step);
     body = (
       <SetupStepPage
-        step={page.step} settings={settings} update={update} anilist={anilist} playlistSlot={playlistSlot}
+        step={page.step} settings={settings} update={update} anilist={anilist}
+        playlistSlot={(
+          <PlaylistImport variant="setup" shows={anilist.shows} playlistName={settings.playlistName}
+            onDone={() => markStep('playlist', 'done')} onSkip={() => markStep('playlist', 'skipped')} />
+        )}
+        ownActions={page.step === 'playlist' && !playlist?.rowCount}
         onStep={(state) => markStep(page.step, state)}
         onBack={() => navigate({ page: i > 0 ? { name: 'setup', step: SETUP_STEPS[i - 1]! } : { name: 'welcome' } })}
       />
@@ -180,14 +216,31 @@ export function App() {
       ? (
         <Review
           items={reviewItems} country={settings.country} prefs={prefs} autoplay={settings.autoplay}
-          playlistName={settings.playlistName} snapshot={snapshot} onSnapshot={setSnapshot} onSettings={update}
+          playlistName={settings.playlistName} snapshot={snapshot} onSnapshot={() => undefined} onSettings={update}
+          onAdded={onAdded} onAddedUndone={(prevBound) => update({ boundId: prevBound, selection: selectNewer() })}
           onBack={() => { setLookup(null); navigate({ page: { name: 'anime' } }); }}
           onNewSession={() => { setLookup(null); navigate({ page: { name: 'anime' } }); }}
         />
       )
       : <p className="muted resuming">{candidates.length ? 'Restoring your review…' : 'Nothing to review yet: pick some anime first.'}</p>;
+  } else if (page.name === 'playlist') {
+    body = (
+      <main className="page-pad">
+      <PlaylistPage
+        key={playlistFilter} shows={anilist.shows} initialFilter={playlistFilter}
+        onBack={() => navigate({ page: { name: 'anime' } })}
+        onResync={() => openSettings('playlist')}
+        onReviewShow={(id) => {
+          // "Review the missing songs": a session with just this show.
+          update({ selection: setShows(selectNone(), [id], true, { ordered, boundId: settings.boundId, direction: settings.order.direction }) });
+          setLookup(null);
+          navigate({ page: { name: 'anime' } });
+        }}
+      />
+      </main>
+    );
   } else {
-    // anime (and, until the playlist library lands, playlist).
+    // anime
     body = (
       <>
         {(settings.notices.settingsMoved === false || anilist.error) && (
@@ -206,8 +259,8 @@ export function App() {
             shows={anilist.shows} ordered={ordered} order={settings.order} onOrder={(order) => update({ order })}
             boundId={settings.boundId} selection={settings.selection} onSelect={(patch) => update(patch)}
             candidates={candidates} listStatuses={settings.listStatuses}
-            suggestion={suggestedId ? { anilistId: suggestedId, evidence: 'from the last songs in your playlist' } : null}
-            coverage={EMPTY_COVERAGE} cachedSongCounts={songCounts} lastSessionAt={lastSessionAt}
+            suggestion={suggestion ? { anilistId: suggestion.anilistId, evidence: suggestion.evidence } : null}
+            coverage={coverage} cachedSongCounts={songCounts} lastSessionAt={lastSessionAt}
             newSinceVisit={anilist.newlyFinished} lookup={lookup} includeInserts={settings.includeInserts}
             onFindSongs={() => void findSongs()} onCancelLookup={cancelLookup}
             onRetryLookup={() => void findSongs({ refresh: true })} onReviewAnyway={() => navigate({ page: { name: 'review' } })}

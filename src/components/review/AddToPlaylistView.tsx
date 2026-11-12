@@ -46,6 +46,10 @@ interface Props {
   /** Open a song in its pass, to change the decision. */
   onPick: (key: string) => void;
   onNewSession: () => void;
+  /** The batch's shows (watch order): moves "last show added" forward; returns the previous one. */
+  onAdded?: (anilistIds: number[]) => number | null | undefined;
+  /** Undo of a batch: restore "last show added". */
+  onAddedUndone?: (prevBound: number | null) => void;
 }
 
 /** Phase 3: the songs to add, grouped by show in watch order, and the three steps to get them into the playlist. */
@@ -86,6 +90,7 @@ export function AddToPlaylistView(p: Props) {
       await p.onUndo(done.id);
       await playlistLibrary.removeAdds(done.id);
       if (done.anyway?.length) await p.onAddAnyway(done.anyway, true);
+      if (done.prevBound !== undefined) p.onAddedUndone?.(done.prevBound);
       p.onDone(undefined);
     };
     return <SessionDone done={done} onUndo={undo} onNewSession={p.onNewSession} />;
@@ -112,7 +117,9 @@ export function AddToPlaylistView(p: Props) {
     }), id);
     // Recorded songs are in the add log now; clear their override so they can't go out again.
     await p.onAddAnyway(anyway, false);
-    p.onDone({ id, n, at: Date.now(), playlistName, ...(anyway.length ? { anyway } : {}) });
+    const showIds = plan.add.map((i) => byKey.get(i.key)?.show.anilistId).filter((x): x is number => x !== undefined);
+    const prevBound = p.onAdded?.(showIds);
+    p.onDone({ id, n, at: Date.now(), playlistName, ...(anyway.length ? { anyway } : {}), ...(prevBound !== undefined ? { prevBound } : {}) });
   };
   const fresh = !!snapshot && Date.now() - snapshot.importedAt <= STALE_MS;
 

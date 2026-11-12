@@ -36,6 +36,8 @@ interface Props {
   onSettings: (patch: { country?: string; preferTvSize?: boolean; autoplay?: boolean; playlistName?: string }) => void;
   onBack: () => void;
   onNewSession: () => void;
+  onAdded?: (anilistIds: number[]) => number | null | undefined;
+  onAddedUndone?: (prevBound: number | null) => void;
 }
 
 const VIEW_KEY = 'anisong-curator.queueView';
@@ -55,7 +57,7 @@ const OPEN_BY_DEFAULT: MatchState[] = ['check', 'unlikely', 'no-match', 'error']
  * the Review step). Owns the state, the keys and the saved place; the
  * components under review/ render it.
  */
-export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, playlistName, onSettings, onBack, onNewSession }: Props) {
+export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, playlistName, onSettings, onBack, onNewSession, onAdded, onAddedUndone }: Props) {
   const keys = useMemo(() => items.map((i) => i.key), [items]);
   const byKey = useMemo(() => new Map(items.map((i) => [i.key, i])), [items]);
   const scope = sessionScope(keys);
@@ -280,7 +282,7 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
           country={country} playlistName={playlistName} playlist={playlist} snapshot={snapshot} onSnapshot={onSnapshot}
           syncOpen={syncOpen} onSyncOpen={setSyncOpen} added={added} storeNames={storeNames}
           onRecord={record} onUndo={undoBatch} onAddAnyway={setAddAnyway} done={session.done} onDone={setDone}
-          onPick={pickFromAdd} onNewSession={onNewSession}
+          onPick={pickFromAdd} onNewSession={onNewSession} onAdded={onAdded} onAddedUndone={onAddedUndone}
         />
       ) : (
         <div className="rv-split">
