@@ -1,0 +1,32 @@
+{
+ "note": "SYNTHETIC. Openings of the AniList top-10 TV anime by score (2026-11-12). Names mostly from the US iTunes catalog, otherwise AnimeThemes; albums/durations partly invented; dates/plays synthetic. Mimics a Music.app export: UTF-16LE+BOM, CR line endings, 31-column header, 30 cells per row (no trailing Location), sorted by Name descending (not playlist order).",
+ "rowCount": 20,
+ "first": {
+  "title": "勇者",
+  "artist": "YOASOBI",
+  "durationSec": 194
+ },
+ "last": {
+  "title": "Again",
+  "artist": "YUI",
+  "durationSec": 255
+ },
+ "ordered": false,
+ "sortedBy": "name-desc",
+ "duplicatePair": {
+  "title": "Again",
+  "artist": "YUI",
+  "note": "FMA:B OP1; exact duplicate of a catalog track"
+ },
+ "nativeDuplicatePair": {
+  "playlistTitle": "勇者",
+  "catalogTitle": "Yuusha",
+  "artist": "YOASOBI",
+  "note": "Frieren OP1; the playlist row uses the native title, so it should match via the theme songTitleNative/alt titles"
+ },
+ "notADuplicate": {
+  "title": "Again",
+  "artist": "Some Other Band",
+  "note": "same title, different artist"
+ }
+}

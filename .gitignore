@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env*.local
+*.p8
+*.token
+.DS_Store
+.claude/worktrees/
