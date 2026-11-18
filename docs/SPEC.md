@@ -61,9 +61,10 @@ keyless approach work. Confirm it in the spike.
   on the Apple ID that owns the playlist, so that Shortcuts can add catalog
   tracks.
 - **AniList client ID**, only if your list is private. Register one at
-  `anilist.co/settings/developer` with the app's origin as the redirect URL
-  (e.g. `http://localhost:5173/`; the implicit grant returns there with
-  `#access_token=…`). The SPA uses the implicit grant, so it only needs the
+  `anilist.co/settings/developer` with the app's address as the redirect URL
+  (e.g. `http://localhost:5173/`, or `https://<owner>.github.io/<repo>/` for
+  the GitHub Pages build; the implicit grant returns there with
+  `#access_token=…`). Settings › AniList shows the exact URL to register. The SPA uses the implicit grant, so it only needs the
   client ID. There is no secret.
 - **A Mac or iPhone with Shortcuts**, with the two shortcuts in §6 built
   (`Anisong Add Kept`, `Anisong Export Playlist`).

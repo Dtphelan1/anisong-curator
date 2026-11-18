@@ -50,7 +50,7 @@ function LoginForm({ settings, update }: { settings: Settings; update: UpdateSet
         location.href = authorizeUrl(settings.clientId);
       }}>Log in with AniList</button>
       {settings.token && <button className="btn-line" onClick={() => update({ token: null })}>Log out</button>}
-      <div className="set-hint">Register a client at anilist.co/settings/developer with the redirect URL <code>{location.origin}/</code>.</div>
+      <div className="set-hint">Register a client at anilist.co/settings/developer with the redirect URL <code>{location.origin}{import.meta.env.BASE_URL}</code>.</div>
     </div>
   );
 }
