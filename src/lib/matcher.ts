@@ -197,7 +197,10 @@ export interface SearchStep {
 /**
  * Searches to try, in order, stopping once the best score clears `check`.
  * Cheap first: romaji title + artist in the user's store; title alone;
- * then native title (+ native artist) in the JP store, whose ids are global.
+ * then native title (+ native artist) in the JP store, whose ids are global;
+ * then the native title alone there, since a romaji artist name (all most
+ * themes have) can sink a JP search: "来れ恋・至れ愛 Rentarou Family" finds
+ * nothing, "来れ恋・至れ愛" finds the single first.
  */
 export function planSearches(theme: Theme, country: string, animeTitles: string[] = []): SearchStep[] {
   const steps: SearchStep[] = [];
@@ -208,8 +211,10 @@ export function planSearches(theme: Theme, country: string, animeTitles: string[
   // No artist on record: the anime title is the next best disambiguator.
   if (title && !artist && animeTitles[0]) steps.push({ term: `${title} ${animeTitles[0]}`, country });
   const native = theme.songTitleNative;
-  if (native) steps.push({ term: [native, theme.artistsNative[0] ?? artist].filter(Boolean).join(' '), country: 'jp' });
-  else if (title && country !== 'jp' && artist) steps.push({ term: `${title} ${artist}`, country: 'jp' });
+  if (native) {
+    steps.push({ term: [native, theme.artistsNative[0] ?? artist].filter(Boolean).join(' '), country: 'jp' });
+    steps.push({ term: native, country: 'jp' });
+  } else if (title && country !== 'jp' && artist) steps.push({ term: `${title} ${artist}`, country: 'jp' });
   const seen = new Set<string>();
   return steps.filter((s) => { const k = `${s.country}|${normalize(s.term)}`; return seen.has(k) ? false : (seen.add(k), true); });
 }

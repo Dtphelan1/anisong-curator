@@ -36,8 +36,10 @@ export function buildReviewItems(shows: Show[], themesFor: (s: Show) => Theme[])
  * Background matcher. Uses cached matches, resolves AnimeThemes Apple Music
  * links in one batch, then searches the rest one at a time, always choosing
  * the next unmatched item at or after the one the user is looking at.
+ * Keys in `later` (songs the playlist check already found) are searched
+ * last: they go to the Already have pass, so the review's songs come first.
  */
-export function useMatching(items: ReviewItem[], country: string, prefs: MatchPrefs, currentIndex: number) {
+export function useMatching(items: ReviewItem[], country: string, prefs: MatchPrefs, currentIndex: number, later?: { current: Set<string> }) {
   const [matches, setMatches] = useState<Map<string, MatchResult>>(new Map());
   const [status, setStatus] = useState<Map<string, MatchStatus>>(new Map());
   const [errors, setErrors] = useState<Map<string, string>>(new Map());
@@ -83,7 +85,8 @@ export function useMatching(items: ReviewItem[], country: string, prefs: MatchPr
       for (;;) {
         if (cancelled) return;
         const from = current.current;
-        const next = [...items.slice(from), ...items.slice(0, from)].find((i) => !have.has(i.key) && !pinned.current.has(i.key));
+        const open = [...items.slice(from), ...items.slice(0, from)].filter((i) => !have.has(i.key) && !pinned.current.has(i.key));
+        const next = open.find((i) => !later?.current.has(i.key)) ?? open[0];
         if (!next) return;
         setStatus((s) => new Map(s).set(next.key, 'matching'));
         try {

@@ -82,6 +82,14 @@ describe('planSearches', () => {
       { term: 'Yoake no Uta jo0ji', country: 'us' },
       { term: 'Yoake no Uta', country: 'us' },
       { term: 'よあけのうた jo0ji', country: 'jp' },
+      { term: 'よあけのうた', country: 'jp' },
+    ]);
+  });
+  it('tries the native title alone when native title + romaji artist finds nothing', () => {
+    const t = theme({ songTitle: 'Kore Koi Itare Ai', songTitleNative: '来れ恋・至れ愛', artists: ['Rentarou Family'] });
+    expect(planSearches(t, 'us').slice(-2)).toEqual([
+      { term: '来れ恋・至れ愛 Rentarou Family', country: 'jp' },
+      { term: '来れ恋・至れ愛', country: 'jp' },
     ]);
   });
   it('uses the anime title when the artist is unknown', () => {

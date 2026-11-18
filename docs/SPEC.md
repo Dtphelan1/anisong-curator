@@ -468,6 +468,10 @@ ISRC**.
      `country=<cc>`. Lookup takes comma-separated IDs, so this is one call. It
      works if catalog IDs are shared across storefronts. Verify that in the
      spike.
+  4. Only if still below 0.6: the native title **alone** in the JP store.
+     Themes rarely carry a native artist name, and the romaji one can sink a
+     JP search: "来れ恋・至れ愛 Rentarou Family" finds nothing, while
+     "来れ恋・至れ愛" finds the single first (checked 2026-11-18).
 
   A typical season (~25 themes) costs ~35–50 requests, or 2–3 minutes. Start
   reviewing as matches arrive.
@@ -583,6 +587,14 @@ songs takes tens of milliseconds.
 
 **In the UI.** The review uses the same scoring, so what the review says is
 what the export does.
+- **The playlist is checked first, not only after a match.** A song with no
+  Apple Music match yet (still queued, or none found) is checked by its
+  AnimeThemes names and its OP/ED link. Romanizations differ ("Kore Koi Itare
+  Ai" by Rentarou Family is "Kitare Koi Itare Ai" by Rentaro Family in the
+  catalog and the playlist), and the fuzzy tiers absorb that. A hit sends it
+  to **Already have** at once, and the matcher searches those songs last, so
+  the songs you still have to review get matched first. **Add anyway** needs
+  a match, which the search supplies when it gets there.
 - **Every song is still reviewed,** but songs with a hit (any tier) don't
   interrupt the main review: they get their own pass, **Already have**, after
   it, in the same split view. Skip is the default there (an undecided one

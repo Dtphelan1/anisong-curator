@@ -78,7 +78,9 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
   // ---- Data: matches, decisions, the add log, and the in-playlist check ----
   const activeGuess = phase === 'have' ? curHave : curReview;
   const index = Math.max(0, keys.indexOf(activeGuess ?? ''));
-  const { matches, status, errors, choose, rematch } = useMatching(items, country, prefs, index);
+  /** Songs the playlist check found before they were matched: searched last (see useMatching). */
+  const laterRef = useRef(new Set<string>());
+  const { matches, status, errors, choose, rematch } = useMatching(items, country, prefs, index, laterRef);
   const { decisions, loaded, decide, decideMany, setAddAnyway } = useDecisions(keys);
   const { added, record, undoBatch } = useAdded();
   const playlist = useMemo(() => (snapshot ? indexRows(snapshot.rows, { artistsKnown: snapshot.artistsKnown !== false }) : null), [snapshot]);
@@ -91,16 +93,20 @@ export function Review({ items, country, prefs, autoplay, snapshot, onSnapshot, 
     const m = new Map<string, DupHit>();
     if (!playlist && !addedIndex) return m;
     for (const it of items) {
+      // The playlist comes first: with no Apple Music match yet (still
+      // searching, or none found), check the show's own names for the song,
+      // and the OP/ED link. A song you have shouldn't read as "no match".
       const t = chosenTrack(matches.get(it.key));
-      if (!t) continue;
-      const hit = checkSources(
-        withStoreName({ key: it.key, trackId: t.trackId, title: t.trackName, artist: t.artistName, durationMs: t.trackTimeMillis, ...themeNames(it.theme) }, storeNames.get(t.trackId)),
-        { playlist, added, addedIndex },
-      );
+      const q = t
+        ? withStoreName({ key: it.key, trackId: t.trackId, title: t.trackName, artist: t.artistName, durationMs: t.trackTimeMillis, ...themeNames(it.theme) }, storeNames.get(t.trackId))
+        : { key: it.key, title: it.theme.songTitle ?? it.theme.songTitleNative ?? '', artist: it.theme.artists.join(', '), durationMs: null, ...themeNames(it.theme) };
+      if (!q.title) continue;
+      const hit = checkSources(q, { playlist, added, addedIndex });
       if (hit) m.set(it.key, hit);
     }
     return m;
   }, [playlist, added, addedIndex, items, matches, storeNames]);
+  laterRef.current = new Set([...hits.keys()].filter((k) => !matches.has(k)));
   const canCheck = !!playlist || added.length > 0;
 
   // ---- The two passes ----
