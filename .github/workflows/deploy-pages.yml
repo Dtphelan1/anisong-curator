@@ -1,7 +1,8 @@
 # Build the app and publish it to GitHub Pages on every push to main.
 # One-time setup: repository Settings → Pages → Build and deployment →
-# Source: "GitHub Actions". The site is served at
-# https://<owner>.github.io/<repo>/, so the build's base path is the repo name.
+# Source: "GitHub Actions". The site is served at https://<owner>.github.io/<repo>/
+# or, once a custom domain is set in that page, at the domain's root. The
+# configure-pages step reports which (`base_path`), and the build uses it.
 name: Deploy to GitHub Pages
 
 on:
@@ -33,9 +34,11 @@ jobs:
         run: npx vitest run
       - name: Type check
         run: npx tsc --noEmit
+      - id: pages
+        uses: actions/configure-pages@v5
       - name: Build
-        run: npx vite build --base="/${{ github.event.repository.name }}/"
-      - uses: actions/configure-pages@v5
+        # base_path is "/<repo>" on github.io and "" on a custom domain.
+        run: npx vite build --base="${{ steps.pages.outputs.base_path }}/"
       - uses: actions/upload-pages-artifact@v4
         with:
           path: dist

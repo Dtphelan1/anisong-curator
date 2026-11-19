@@ -10,7 +10,8 @@ An app for seamlessly adding your favorite anisongs from this season to an exist
 ## Deploy
 
 Every push to `main` builds the app and publishes it to GitHub Pages at
-`https://<owner>.github.io/<repo>/` (the `Deploy to GitHub Pages` workflow
+`https://<owner>.github.io/<repo>/`, or at the root of the custom domain set
+under Settings → Pages (the `Deploy to GitHub Pages` workflow
 in `.github/workflows/deploy-pages.yml`; tests and the type check run first).
 Pull requests and other branches run the same checks without deploying
 (`.github/workflows/ci.yml`).
